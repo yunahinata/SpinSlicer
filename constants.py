@@ -16,6 +16,31 @@ DEFAULT_DIAMETER_MM = 60.0
 FILL_FRACTION = 0.92
 ANTI_ALIAS_FACTOR = 4
 
+# --- Защита вычислительного pipeline ---------------------------------------
+# Значения намеренно немного шире текущих UI-диапазонов: публичные классы
+# ядра могут вызываться без интерфейса, поэтому безопасность не должна
+# зависеть от того, каким способом были получены параметры.
+MIN_DIAMETER_MM = 1.0
+MAX_DIAMETER_MM = 1000.0
+MIN_GRID_RESOLUTION = 16
+MAX_GRID_RESOLUTION = 512
+MIN_OUTPUT_RESOLUTION = 16
+MAX_OUTPUT_RESOLUTION = 4096
+MIN_NUM_FRAMES = 2
+MAX_NUM_FRAMES = 720
+MAX_LAYERS = 4096
+MAX_STL_FILE_BYTES = 512 * 1024 * 1024
+MAX_MESH_TRIANGLES = 5_000_000
+MAX_ESTIMATED_MEMORY_BYTES = 2 * 1024 * 1024 * 1024
+
+# Ограничения frame-set применяются до полного декодирования изображений.
+MAX_FRAME_FILE_BYTES = 64 * 1024 * 1024
+MAX_FRAME_DIMENSION = 8192
+MAX_FRAME_TOTAL_PIXELS = 1_000_000_000
+MAX_FRAME_TOTAL_BYTES = 1_500_000_000
+MAX_VIDEO_PREVIEW_BYTES = 768 * 1024 * 1024
+MAX_METADATA_FILE_BYTES = 4 * 1024 * 1024
+
 # --- Вьюпорт -----------------------------------------------------------
 # Колба всегда абсолютного размера: диаметр — из настроек, высота — фиксированное
 # отношение к диаметру. Она НЕ пересчитывается при трансформации модели.

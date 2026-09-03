@@ -18,12 +18,21 @@ from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QCheckBox,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from constants import (
-    DEFAULT_DIAMETER_MM, DEFAULT_GRID_RESOLUTION, DEFAULT_NUM_FRAMES,
+    DEFAULT_DIAMETER_MM,
+    DEFAULT_GRID_RESOLUTION,
+    DEFAULT_NUM_FRAMES,
     DEFAULT_OUTPUT_RESOLUTION,
 )
 from model_node import ModelNode

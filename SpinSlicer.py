@@ -18,16 +18,28 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PyQt6.QtWidgets import (
-    QApplication, QLabel, QMainWindow, QPlainTextEdit, QProgressBar,
-    QStatusBar, QTabWidget, QVBoxLayout, QWidget,
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QPlainTextEdit,
+    QProgressBar,
+    QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from constants import (
-    ACCENT_GREEN, ACCENT_GREEN_HOVER, APP_TITLE, BUTTON_RADIUS, PANEL_RADIUS,
+    ACCENT_GREEN,
+    ACCENT_GREEN_HOVER,
+    APP_TITLE,
+    BUTTON_RADIUS,
+    PANEL_RADIUS,
 )
+from job_controller import JobController
 from simulator_tab import SimulatorTab
 from slicer_tab import SlicerTab
 from video_tab import ProjectorTab
@@ -109,6 +121,7 @@ class CALSlicerMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        self._job_controller = JobController()
 
         self._build_central()
         self._build_status_bar()
@@ -128,9 +141,9 @@ class CALSlicerMainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
 
-        self.slicer_tab = SlicerTab()
-        self.projector_tab = ProjectorTab()
-        self.simulator_tab = SimulatorTab()
+        self.slicer_tab = SlicerTab(job_controller=self._job_controller)
+        self.projector_tab = ProjectorTab(job_controller=self._job_controller)
+        self.simulator_tab = SimulatorTab(job_controller=self._job_controller)
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
@@ -190,11 +203,15 @@ class CALSlicerMainWindow(QMainWindow):
         self._log(message)
 
     def _log(self, message: str) -> None:
-        stamp = datetime.now().strftime("%H:%M:%S")
+        stamp = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
         self._log_panel.appendPlainText(f"[{stamp}] {message}")
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
-        self.slicer_tab.closeEvent(event)
+        if self._job_controller.shutdown():
+            event.accept()
+        else:
+            self._log("Невозможно безопасно закрыть приложение: фоновая задача ещё выполняется.")
+            event.ignore()
 
 
 def main() -> None:

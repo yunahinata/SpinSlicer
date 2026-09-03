@@ -12,7 +12,12 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDoubleSpinBox, QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
 )
 
 
