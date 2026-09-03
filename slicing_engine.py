@@ -21,20 +21,34 @@ threading.Event, доступного через self).
 """
 from __future__ import annotations
 
-import glob
 import os
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 import trimesh
 from PIL import Image, ImageDraw
-from scipy.ndimage import binary_fill_holes, binary_closing
-from skimage.transform import radon, resize as sk_resize
+from scipy.ndimage import binary_closing, binary_fill_holes
+from skimage.transform import radon
+from skimage.transform import resize as sk_resize
 
-from constants import ANTI_ALIAS_FACTOR
-from frame_io import SliceMeta, save_meta
+from constants import ANTI_ALIAS_FACTOR, VAT_HEIGHT_RATIO
+from frame_io import (
+    FrameRepository,
+    GenerationManifest,
+    SliceMeta,
+    save_manifest,
+    save_meta,
+    sha256_file,
+)
+from validation import (
+    ValidationError,
+    ensure_directory,
+    preflight_mesh,
+    validate_slice_parameters,
+    validate_stl_path,
+)
 
 ProgressCallback = Callable[[float, str], None]
 CancelCheck = Callable[[], bool]
@@ -59,6 +73,18 @@ class SliceParams:
     resin: ResinSettings
     output_dir: str
 
+    def validate(self) -> None:
+        """Validate values before they can determine array dimensions."""
+
+        validate_slice_parameters(
+            self.diameter_mm,
+            self.grid_res,
+            self.output_res,
+            self.num_frames,
+            self.resin,
+            self.fill_holes,
+        )
+
 
 class SliceCancelled(Exception):
     """Поднимается, когда пользователь отменил генерацию из UI."""
@@ -73,6 +99,7 @@ class SlicingEngine:
         params: SliceParams,
         progress_cb: Optional[ProgressCallback] = None,
         is_cancelled: Optional[CancelCheck] = None,
+        manifest_context: Optional[dict[str, Any]] = None,
     ) -> Tuple[int, str]:
         """Считает проекции для одного (уже финально трансформированного) меша.
 
@@ -88,6 +115,16 @@ class SlicingEngine:
             return is_cancelled() if is_cancelled is not None else False
 
         report(0.02, "Подготовка модели...")
+
+        params.validate()
+        preflight = preflight_mesh(
+            mesh,
+            params,
+            vat_height_mm=params.diameter_mm * VAT_HEIGHT_RATIO,
+        )
+        if not preflight.ok:
+            raise ValidationError("\n".join(preflight.errors))
+        ensure_directory(params.output_dir)
 
         diameter_mm = params.diameter_mm
         grid_res = params.grid_res
@@ -128,7 +165,11 @@ class SlicingEngine:
                 ])
 
                 try:
-                    slice_2d, _ = slice_3d.to_planar(to_2D=matrix_2d)
+                    to_2d = getattr(slice_3d, "to_2D", None)
+                    if callable(to_2d):
+                        slice_2d, _ = to_2d(to_2D=matrix_2d)
+                    else:  # trimesh < 5 compatibility
+                        slice_2d, _ = slice_3d.to_planar(to_2D=matrix_2d)
                 except Exception:
                     continue
 
@@ -181,14 +222,16 @@ class SlicingEngine:
         angles = (np.linspace(0.0, 360.0, num_frames, endpoint=False) + 90.0) % 360.0
         report(0.30, "Расчёт Radon-преобразования...")
 
-        sinograms = None
+        sinograms = np.zeros((nz, grid_res, num_frames), dtype=np.float32)
         for i in range(nz):
             if cancelled():
                 raise SliceCancelled()
 
             sino = radon(slices[:, :, i], theta=angles, circle=True)
-            if sinograms is None:
-                sinograms = np.zeros((nz, sino.shape[0], num_frames), dtype=np.float32)
+            if sino.shape != (grid_res, num_frames):
+                raise ValueError(
+                    f"Unexpected Radon shape {sino.shape}; expected {(grid_res, num_frames)}."
+                )
             sinograms[i] = sino
 
             if i % report_step == 0:
@@ -202,32 +245,10 @@ class SlicingEngine:
         threshold_abs = (resin.threshold / 100.0) * max_dose
         denom = max(max_dose - threshold_abs, 1e-9)
 
-        out_dir = params.output_dir
-        os.makedirs(out_dir, exist_ok=True)
-
-        # Чистим "хвосты" от предыдущей генерации в ту же папку. out_dir
-        # всегда один и тот же для одной модели (<папка STL>/output_frames),
-        # и без этой очистки при смене параметров (число кадров, разрешение)
-        # между запусками — или при отмене генерации на середине — в
-        # каталоге остаются вперемешку кадры от разных генераций. Проектор
-        # и Симулятор читают весь frame_*.png без разбора, поэтому такой
-        # "хвост" выглядит как испорченный/дёргающийся результат, хотя
-        # генерация технически прошла нормально.
-        for stale_path in glob.glob(os.path.join(out_dir, "frame_*.png")):
-            try:
-                os.remove(stale_path)
-            except OSError:
-                pass
-
-        # Метаданные пишем сразу — они нужны вкладкам "Проектор"/"Симулятор"
-        # даже если пользователь отменит генерацию до конца.
-        save_meta(out_dir, SliceMeta(
-            diameter_mm=diameter_mm, grid_res=grid_res, output_res=output_res,
-            num_frames=num_frames, fill_holes=fill_holes,
-            resin_base_exposure=resin.base_exposure, resin_intensity=resin.intensity,
-            resin_threshold=resin.threshold,
-            generated_at=datetime.now().isoformat(timespec="seconds"),
-        ))
+        # Каждый запуск получает отдельную директорию. Незавершённая папка
+        # не имеет complete manifest и потому не может быть автоматически
+        # выбрана Projector/Simulator.
+        out_dir = FrameRepository.create_run_dir(params.output_dir)
 
         target_h = max(int(round(output_res * nz / grid_res)), 1)
 
@@ -254,6 +275,60 @@ class SlicingEngine:
 
             if i % save_step == 0:
                 report(0.80 + 0.19 * (i / num_frames), f"Сохранение кадра {i}/{num_frames}...")
+
+        # Metadata становится видимым только после того, как все PNG уже
+        # записаны. Manifest публикуется после проверки полного frame-set.
+        save_meta(out_dir, SliceMeta(
+            diameter_mm=diameter_mm, grid_res=grid_res, output_res=output_res,
+            num_frames=num_frames, fill_holes=fill_holes,
+            resin_base_exposure=resin.base_exposure, resin_intensity=resin.intensity,
+            resin_threshold=resin.threshold,
+            generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ))
+
+        # Publishing the complete manifest is the commit point for a run. A
+        # direct caller of SlicingEngine therefore gets the same safe output
+        # contract as the GUI worker, while optional context records the STL
+        # hash and the ModelNode transform when those are available.
+        if cancelled():
+            raise SliceCancelled()
+        context = manifest_context or {}
+        source_path = str(context.get("source_path", ""))
+        source_hash = ""
+        if source_path:
+            validate_stl_path(source_path)
+            source_hash = sha256_file(source_path)
+        if cancelled():
+            raise SliceCancelled()
+        transform = context.get("transform_matrix")
+        if not isinstance(transform, list):
+            transform = np.eye(4, dtype=np.float64).tolist()
+        frame_set = FrameRepository.validate(out_dir, require_complete=False)
+        save_manifest(
+            out_dir,
+            GenerationManifest(
+                source_sha256=source_hash,
+                source_name=os.path.basename(source_path) if source_path else "",
+                units=str(context.get("units", "mm")),
+                transform_matrix=transform,
+                slice_parameters={
+                    "diameter_mm": params.diameter_mm,
+                    "grid_res": params.grid_res,
+                    "output_res": params.output_res,
+                    "num_frames": params.num_frames,
+                    "fill_holes": params.fill_holes,
+                    "resin": {
+                        "base_exposure": params.resin.base_exposure,
+                        "intensity": params.resin.intensity,
+                        "threshold": params.resin.threshold,
+                    },
+                },
+                frame_count=frame_set.frame_count,
+                frame_size=(frame_set.width, frame_set.height),
+                complete=True,
+                generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            ),
+        )
 
         report(1.0, "Готово.")
         return num_frames, out_dir

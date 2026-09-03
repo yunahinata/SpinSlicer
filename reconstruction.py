@@ -22,9 +22,10 @@ import numpy as np
 import trimesh
 from PIL import Image
 from skimage.measure import marching_cubes
-from skimage.transform import iradon, resize as sk_resize
+from skimage.transform import iradon
+from skimage.transform import resize as sk_resize
 
-from frame_io import list_frame_paths, load_meta
+from frame_io import FrameRepository
 
 ProgressCallback = Callable[[float, str], None]
 CancelCheck = Callable[[], bool]
@@ -67,33 +68,21 @@ class Reconstructor:
 
         report(0.02, "Чтение кадров и метаданных...")
 
-        paths = list_frame_paths(frames_dir)
-        if not paths:
-            raise ValueError(f"В папке {frames_dir} нет кадров frame_*.png.")
-
-        meta = load_meta(frames_dir)
+        frame_set = FrameRepository.validate(frames_dir)
+        paths = frame_set.paths
+        meta = frame_set.meta
         if meta is not None:
             diameter_mm = meta.diameter_mm
             grid_res = meta.grid_res
-            if meta.num_frames != len(paths):
-                report(
-                    0.03,
-                    f"Внимание: найдено {len(paths)} кадров, а по метаданным должно "
-                    f"быть {meta.num_frames} — похоже, генерация была прервана/отменена "
-                    f"или папка содержит кадры от другого запуска. Результат может "
-                    f"быть некорректным, рекомендуется перегенерировать кадры.",
-                )
         else:
             diameter_mm = FALLBACK_DIAMETER_MM
             grid_res = FALLBACK_GRID_RES
             report(0.03, "slice_meta.json не найден — использую дефолтные диаметр/разрешение.")
 
-        num_frames = len(paths)
+        num_frames = frame_set.frame_count
         pitch_mm = diameter_mm / grid_res
 
-        first = np.array(Image.open(paths[0]).convert("L"), dtype=np.float32)
-        target_h, output_res = first.shape
-        nz = max(int(round(target_h * grid_res / output_res)), 1)
+        nz = frame_set.nz
 
         # Те же углы, что использовались при генерации (см. slicing_engine.py) —
         # без точного совпадения реконструкция будет искажена.
@@ -107,7 +96,8 @@ class Reconstructor:
             if cancelled():
                 raise ReconstructionCancelled()
 
-            img = np.array(Image.open(path).convert("L"), dtype=np.float32) / 255.0
+            with Image.open(path) as image:
+                img = np.array(image.convert("L"), dtype=np.float32) / 255.0
             # Обратный шаг ресайза forward-пайплайна: (target_h, output_res) -> (nz, grid_res)
             small = sk_resize(
                 img, (nz, grid_res), order=1, mode="edge",
