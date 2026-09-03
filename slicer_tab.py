@@ -12,22 +12,35 @@ slicer_tab.py
 from __future__ import annotations
 
 import os
-import sys
 from typing import Optional
 
 import trimesh
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QMessageBox, QPushButton, QSplitter, QVBoxLayout,
+    QFileDialog,
+    QHBoxLayout,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
     QWidget,
 )
 
-from constants import DEFAULT_DIAMETER_MM, FILL_FRACTION
+from constants import DEFAULT_DIAMETER_MM, FILL_FRACTION, VAT_HEIGHT_RATIO
+from job_controller import JobController
 from model_node import ModelNode
 from slicing_engine import ResinSettings, SliceParams
 from ui_panels import ObjectPanel, ProcessSettingsPanel
+from validation import format_preflight_report, preflight_mesh
 from viewport import Viewport3D
 from workers import GenerationWorker, LoadMeshWorker
+
+
+def open_local_directory(target: str) -> bool:
+    """Ask the native desktop shell to open a directory without a shell."""
+
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(target)))
 
 
 class SlicerTab(QWidget):
@@ -38,9 +51,14 @@ class SlicerTab(QWidget):
     # указывать её вручную.
     outputGenerated = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        job_controller: Optional[JobController] = None,
+    ):
         super().__init__(parent)
 
+        self._job_controller = job_controller or JobController()
         self._model_node: Optional[ModelNode] = None
         self._load_worker: Optional[LoadMeshWorker] = None
         self._gen_worker: Optional[GenerationWorker] = None
@@ -139,6 +157,7 @@ class SlicerTab(QWidget):
         self.progress.emit(0.1, "Загрузка модели...")
 
         self._load_worker = LoadMeshWorker(path, self)
+        self._job_controller.register(self._load_worker)
         self._load_worker.loaded.connect(self._on_model_loaded)
         self._load_worker.failed.connect(self._on_model_load_failed)
         self._load_worker.finished.connect(lambda: self.load_btn.setEnabled(True))
@@ -230,8 +249,11 @@ class SlicerTab(QWidget):
         self.logMessage.emit("Трансформация сброшена, модель заново вписана в колбу.")
 
     def _sync_and_redraw(self) -> None:
-        self._object_panel.sync_from_model(self._model_node)
-        self._viewport.update_model_transform(self._model_node.matrix())
+        node = self._model_node
+        if node is None:
+            return
+        self._object_panel.sync_from_model(node)
+        self._viewport.update_model_transform(node.matrix())
 
     # =======================================================================
     # Генерация проекций
@@ -274,7 +296,32 @@ class SlicerTab(QWidget):
         # original_mesh внутри ModelNode остаётся нетронутым.
         mesh_to_process = self._model_node.get_transformed_mesh()
 
-        self._gen_worker = GenerationWorker(mesh_to_process, params, self)
+        preflight = preflight_mesh(
+            mesh_to_process,
+            params,
+            vat_height_mm=diameter * VAT_HEIGHT_RATIO,
+        )
+        report_text = format_preflight_report(preflight)
+        self.logMessage.emit("Preflight отчёт:\n" + report_text)
+        if not preflight.ok:
+            self.progress.emit(0.0, "Проверка модели не пройдена.")
+            self.logMessage.emit("ОШИБКА проверки модели: " + "; ".join(preflight.errors))
+            QMessageBox.critical(self, "Модель не готова к slicing", report_text)
+            return
+        if preflight.warnings:
+            self.logMessage.emit("Предупреждения preflight: " + "; ".join(preflight.warnings))
+
+        self._gen_worker = GenerationWorker(
+            mesh_to_process,
+            params,
+            self,
+            manifest_context={
+                "source_path": self._model_node.source_path,
+                "transform_matrix": self._model_node.matrix().tolist(),
+                "units": "mm",
+            },
+        )
+        self._job_controller.register(self._gen_worker)
         self._gen_worker.progress.connect(self._on_generation_progress)
         self._gen_worker.finished_ok.connect(self._on_generation_done)
         self._gen_worker.failed.connect(self._on_generation_failed)
@@ -318,15 +365,15 @@ class SlicerTab(QWidget):
         if not target or not os.path.isdir(target):
             QMessageBox.information(self, "Информация", "Папка вывода ещё не создана.")
             return
-        if sys.platform == "win32":
-            os.startfile(target)  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            os.system(f'open "{target}"')
-        else:
-            os.system(f'xdg-open "{target}"')
+        if not open_local_directory(target):
+            QMessageBox.warning(
+                self,
+                "Не удалось открыть папку",
+                "Операционная система не приняла запрос на открытие папки.",
+            )
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
-        if self._gen_worker is not None and self._gen_worker.isRunning():
-            self._gen_worker.request_cancel()
-            self._gen_worker.wait(2000)
-        event.accept()
+        if self._job_controller.shutdown():
+            event.accept()
+        else:
+            event.ignore()
