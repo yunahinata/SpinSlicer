@@ -23,7 +23,10 @@ def test_folder_opening_does_not_construct_shell_commands() -> None:
     ],
 )
 def test_folder_opening_passes_special_paths_as_local_urls(monkeypatch, tmp_path, suffix) -> None:
-    slicer_tab = pytest.importorskip("slicer_tab")
+    try:
+        import slicer_tab
+    except (ImportError, OSError, Exception) as exc:
+        pytest.skip(f"slicer_tab cannot be imported in headless/non-GUI environment: {exc}")
     captured = {}
 
     class FakeDesktopServices:
