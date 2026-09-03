@@ -15,10 +15,17 @@ import numpy as np
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
+from job_controller import JobController
 from widgets import LabeledSlider
 from workers import VideoAssembleWorker, VideoExportWorker
 
@@ -29,9 +36,14 @@ class ProjectorTab(QWidget):
     progress = pyqtSignal(float, str)
     logMessage = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        job_controller: Optional[JobController] = None,
+    ):
         super().__init__(parent)
 
+        self._job_controller = job_controller or JobController()
         self._output_dir: Optional[str] = None
         self._frames: List[np.ndarray] = []
         self._frame_index = 0
@@ -94,6 +106,12 @@ class ProjectorTab(QWidget):
 
     # --- общая папка вывода (устанавливается из вкладки "Слайсер") -------------
     def set_output_dir(self, path: str) -> None:
+        if path != self._output_dir:
+            self._timer.stop()
+            self._frames = []
+            self._frame_index = 0
+            self.play_pause_btn.setEnabled(False)
+            self.save_btn.setEnabled(False)
         self._output_dir = path
         self.dir_label.setText(f"Папка кадров: {path}")
 
@@ -114,9 +132,13 @@ class ProjectorTab(QWidget):
         self.progress.emit(0.0, "Сборка видео из кадров...")
 
         self._assemble_worker = VideoAssembleWorker(self._output_dir, self)
+        self._job_controller.register(self._assemble_worker)
         self._assemble_worker.progress.connect(lambda f, m: self.progress.emit(f, m))
         self._assemble_worker.finished_ok.connect(self._on_assembled)
         self._assemble_worker.failed.connect(self._on_assemble_failed)
+        self._assemble_worker.cancelled.connect(
+            lambda: self.progress.emit(0.0, "Сборка видео отменена.")
+        )
         self._assemble_worker.finished.connect(lambda: self.assemble_btn.setEnabled(True))
         self._assemble_worker.start()
 
@@ -183,9 +205,13 @@ class ProjectorTab(QWidget):
         self.progress.emit(0.0, "Экспорт в MP4...")
 
         self._export_worker = VideoExportWorker(self._frames, fps, path, self)
+        self._job_controller.register(self._export_worker)
         self._export_worker.progress.connect(lambda f, m: self.progress.emit(f, m))
         self._export_worker.finished_ok.connect(self._on_export_done)
         self._export_worker.failed.connect(self._on_export_failed)
+        self._export_worker.cancelled.connect(
+            lambda: self.progress.emit(0.0, "Экспорт видео отменён.")
+        )
         self._export_worker.finished.connect(lambda: self.save_btn.setEnabled(True))
         self._export_worker.start()
 
@@ -197,3 +223,9 @@ class ProjectorTab(QWidget):
     def _on_export_failed(self, msg: str) -> None:
         self.progress.emit(0.0, "Ошибка экспорта.")
         QMessageBox.critical(self, "Ошибка экспорта", msg)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
+        if self._job_controller.shutdown():
+            event.accept()
+        else:
+            event.ignore()

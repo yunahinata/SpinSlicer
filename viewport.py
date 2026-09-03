@@ -21,18 +21,22 @@ viewport.py
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
+import pyvista as pv
 import trimesh
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
-
-import pyvista as pv
 from pyvistaqt import QtInteractor
 
 from constants import (
-    MAX_VIEWPORT_TRIANGLES, MODEL_COLOR, VAT_COLOR, VAT_HEIGHT_RATIO,
-    VAT_RESOLUTION, VIEWPORT_BG_BOTTOM, VIEWPORT_BG_TOP,
+    MAX_VIEWPORT_TRIANGLES,
+    MODEL_COLOR,
+    VAT_COLOR,
+    VAT_HEIGHT_RATIO,
+    VAT_RESOLUTION,
+    VIEWPORT_BG_BOTTOM,
+    VIEWPORT_BG_TOP,
 )
 
 
@@ -51,23 +55,24 @@ class Viewport3D(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.plotter = QtInteractor(self)
+        self.plotter: Any = QtInteractor(self)
         layout.addWidget(self.plotter.interactor)
 
-        self.plotter.set_background(VIEWPORT_BG_BOTTOM, top=VIEWPORT_BG_TOP)
+        plotter = cast(Any, self.plotter)
+        plotter.set_background(VIEWPORT_BG_BOTTOM, top=VIEWPORT_BG_TOP)
         try:
-            self.plotter.enable_anti_aliasing("msaa")
+            plotter.enable_anti_aliasing("msaa")
         except Exception:
             pass
         try:
             # Плавная орбитальная камера мышью — как в проф. слайсерах,
             # никаких "съезжающих" осей, которые были у matplotlib.
-            self.plotter.enable_trackball_style()
+            plotter.enable_trackball_style()
         except Exception:
             pass
 
-        self._vat_actor = None
-        self._model_actor = None
+        self._vat_actor: Any = None
+        self._model_actor: Any = None
         self._current_diameter = 0.0
 
         self._reset_camera_view()

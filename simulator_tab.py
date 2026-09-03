@@ -14,10 +14,16 @@ from typing import Optional
 import numpy as np
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
+from job_controller import JobController
 from reconstruction import ReconstructionResult, volume_to_mesh
 from viewport import Viewport3D
 from widgets import LabeledSlider
@@ -30,9 +36,14 @@ class SimulatorTab(QWidget):
     progress = pyqtSignal(float, str)
     logMessage = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        job_controller: Optional[JobController] = None,
+    ):
         super().__init__(parent)
 
+        self._job_controller = job_controller or JobController()
         self._output_dir: Optional[str] = None
         self._worker: Optional[ReconstructionWorker] = None
         self._result: Optional[ReconstructionResult] = None
@@ -90,6 +101,10 @@ class SimulatorTab(QWidget):
 
     # --- общая папка вывода ---------------------------------------------------------
     def set_output_dir(self, path: str) -> None:
+        if path != self._output_dir:
+            self._result = None
+            self.threshold_slider.setEnabled(False)
+            self.viewport.clear_model()
         self._output_dir = path
         self.dir_label.setText(f"Папка кадров: {path}")
 
@@ -117,6 +132,7 @@ class SimulatorTab(QWidget):
         self.simulate_btn.setText("⏹ Отменить")
 
         self._worker = ReconstructionWorker(self._output_dir, self)
+        self._job_controller.register(self._worker)
         self._worker.progress.connect(lambda f, m: self.progress.emit(f, m))
         self._worker.finished_ok.connect(self._on_reconstruction_done)
         self._worker.failed.connect(self._on_reconstruction_failed)
@@ -163,3 +179,9 @@ class SimulatorTab(QWidget):
         self.viewport.set_model(mesh)
         self.viewport.update_model_transform(np.eye(4))
         self.viewport.reset_camera()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
+        if self._job_controller.shutdown():
+            event.accept()
+        else:
+            event.ignore()
