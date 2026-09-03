@@ -127,14 +127,49 @@ class ModelNode:
         if z is not None:
             t[2] = z
 
-    def fit_to_diameter(self, diameter_mm: float, fill_fraction: float) -> None:
-        """Авто-масштабирование под размер колбы (по X/Y), сохраняя пропорции."""
-        base = self.base_extents
-        max_xy = max(base[0], base[1])
-        if max_xy <= 1e-9:
+    def fit_to_vat(
+        self,
+        diameter_mm: float,
+        vat_height_mm: float,
+        fill_fraction: float = 0.92,
+    ) -> None:
+        """Авто-масштабирование с вписыванием в цилиндрическую ванну.
+
+        Учитывает текущий поворот модели (rotation_deg): вершины
+        прогоняются через матрицу вращения *без* масштаба и сдвига,
+        после чего вычисляется:
+        - максимальный радиальный размах в плоскости XY (цилиндр ванны);
+        - максимальный полуразмах по Z (высота ванны).
+
+        Масштаб подбирается пропорциональный (uniform) так, чтобы модель
+        вписывалась и по диаметру, и по высоте. Сдвиг обнуляется.
+        """
+        verts = self.original_mesh.vertices  # (N, 3)
+
+        # Матрица вращения без масштаба и сдвига
+        rx, ry, rz = np.radians(self.transform.rotation_deg)
+        r = tf.euler_matrix(rx, ry, rz, axes="sxyz")[:3, :3]
+
+        rotated = (r @ verts.T).T  # (N, 3)
+
+        # Радиальное расстояние в XY и полуразмах по Z
+        r_max = float(np.max(np.sqrt(rotated[:, 0] ** 2 + rotated[:, 1] ** 2)))
+        z_half = float(np.max(np.abs(rotated[:, 2])))
+
+        if r_max < 1e-9 and z_half < 1e-9:
             return
-        s = (diameter_mm * fill_fraction) / max_xy
+
+        # Масштаб: вписать и по радиусу, и по высоте
+        s_xy = (diameter_mm / 2.0) / r_max if r_max > 1e-9 else 1e9
+        s_z = (vat_height_mm / 2.0) / z_half if z_half > 1e-9 else 1e9
+        s = fill_fraction * min(s_xy, s_z)
+
         self.transform.scale = np.array([s, s, s], dtype=np.float64)
+        self.transform.translation[:] = 0.0  # центрировать
+
+    def fit_to_diameter(self, diameter_mm: float, fill_fraction: float) -> None:
+        """Обратная совместимость: вписывает в ванну с высотой D × 1.6."""
+        self.fit_to_vat(diameter_mm, diameter_mm * 1.6, fill_fraction)
 
     def center_xy(self) -> None:
         self.transform.translation[0] = 0.0

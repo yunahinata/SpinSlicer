@@ -228,8 +228,16 @@ class SlicerTab(QWidget):
     def _on_autofit(self) -> None:
         if self._model_node is None:
             return
-        self._model_node.fit_to_diameter(self._process_panel.vat_diameter_mm(), FILL_FRACTION)
+        diameter = self._process_panel.vat_diameter_mm()
+        self._model_node.fit_to_vat(
+            diameter, diameter * VAT_HEIGHT_RATIO, FILL_FRACTION,
+        )
         self._sync_and_redraw()
+        size = self._model_node.current_size_mm()
+        self.logMessage.emit(
+            f"Авто-фит: модель вписана в колбу ∅{diameter:.0f} мм — "
+            f"размер {size[0]:.2f} × {size[1]:.2f} × {size[2]:.2f} мм."
+        )
 
     def _on_panel_reset(self) -> None:
         """Сброс трансформации к чистому масштабу 1:1 (кнопка на правой панели)."""
@@ -244,7 +252,10 @@ class SlicerTab(QWidget):
         if self._model_node is None:
             return
         self._model_node.reset()
-        self._model_node.fit_to_diameter(self._process_panel.vat_diameter_mm(), FILL_FRACTION)
+        diameter = self._process_panel.vat_diameter_mm()
+        self._model_node.fit_to_vat(
+            diameter, diameter * VAT_HEIGHT_RATIO, FILL_FRACTION,
+        )
         self._sync_and_redraw()
         self.logMessage.emit("Трансформация сброшена, модель заново вписана в колбу.")
 
