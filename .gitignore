@@ -206,6 +206,10 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# SpinSlicer runtime artifacts
+output_frames/
+*.mp4
+
 # PyPI configuration file
 .pypirc
 
