@@ -13,7 +13,7 @@ from typing import List, Optional
 
 import numpy as np
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -30,6 +30,45 @@ from widgets import LabeledSlider
 from workers import VideoAssembleWorker, VideoExportWorker
 
 BASE_FPS = 24.0
+
+
+class VideoPreviewWidget(QLabel):
+    """Отображает кадры видео без изменения геометрии родительского окна.
+
+    Стандартный QLabel.setPixmap(scaled_pixmap) меняет свой sizeHint на
+    каждом кадре, вызывая положительную обратную связь в QLayout:
+    окно начинает непрерывно растягиваться при проигрывании.
+    Отрисовка через paintEvent гарантирует стабильный layout.
+    """
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(text, parent)
+        self._pixmap: Optional[QPixmap] = None
+
+    def set_frame(self, frame: np.ndarray) -> None:
+        h, w = frame.shape[:2]
+        qimg = QImage(frame.tobytes(), w, h, w, QImage.Format.Format_Grayscale8)
+        self._pixmap = QPixmap.fromImage(qimg)
+        self.update()
+
+    def clear_frame(self) -> None:
+        self._pixmap = None
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        if self._pixmap is not None and not self._pixmap.isNull():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            scaled = self._pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        else:
+            super().paintEvent(event)
 
 
 class ProjectorTab(QWidget):
@@ -72,7 +111,7 @@ class ProjectorTab(QWidget):
         dir_row.addWidget(self.browse_btn)
         root.addLayout(dir_row)
 
-        self.preview = QLabel("Нажмите «Собрать и воспроизвести»,\nчтобы увидеть анимацию проекций.")
+        self.preview = VideoPreviewWidget("Нажмите «Собрать и воспроизвести»,\nчтобы увидеть анимацию проекций.")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setObjectName("videoPreview")
         self.preview.setMinimumHeight(420)
@@ -112,6 +151,7 @@ class ProjectorTab(QWidget):
             self._frame_index = 0
             self.play_pause_btn.setEnabled(False)
             self.save_btn.setEnabled(False)
+            self.preview.clear_frame()
         self._output_dir = path
         self.dir_label.setText(f"Папка кадров: {path}")
 
@@ -150,6 +190,8 @@ class ProjectorTab(QWidget):
         self.play_pause_btn.setText("⏸ Пауза")
         self.progress.emit(1.0, "Видео собрано.")
         self.logMessage.emit(f"Собрано {len(frames)} кадров для проигрывания.")
+        if frames:
+            self.preview.set_frame(frames[0])
         self._start_playback()
 
     def _on_assemble_failed(self, msg: str) -> None:
@@ -181,14 +223,7 @@ class ProjectorTab(QWidget):
             return
         frame = self._frames[self._frame_index]
         self._frame_index = (self._frame_index + 1) % len(self._frames)
-
-        h, w = frame.shape[:2]
-        qimg = QImage(frame.tobytes(), w, h, w, QImage.Format.Format_Grayscale8).copy()
-        pixmap = QPixmap.fromImage(qimg).scaled(
-            self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.preview.setPixmap(pixmap)
+        self.preview.set_frame(frame)
 
     # --- экспорт в MP4 -----------------------------------------------------------
     def _on_save_clicked(self) -> None:
