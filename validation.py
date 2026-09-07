@@ -79,6 +79,9 @@ def validate_slice_parameters(
     num_frames: Any,
     resin: Any,
     fill_holes: Any = True,
+    projection_backend: Any = "internal",
+    optimizer_iterations: Any = 8,
+    preserve_internal_voids: Any = False,
 ) -> None:
     """Validate parameters before they influence array dimensions or math."""
 
@@ -112,12 +115,22 @@ def validate_slice_parameters(
     threshold = _finite_number(getattr(resin, "threshold", None), "threshold")
     if not isinstance(fill_holes, bool):
         raise ValidationError("fill_holes must be boolean.")
+    if not isinstance(preserve_internal_voids, bool):
+        raise ValidationError("preserve_internal_voids must be boolean.")
     if exposure <= 0.0:
         raise ValidationError("base_exposure must be greater than zero.")
     if intensity <= 0.0:
         raise ValidationError("intensity must be greater than zero.")
     if not 0.0 <= threshold <= 100.0:
         raise ValidationError("threshold must be between 0 and 100.")
+
+    if projection_backend not in {"internal", "auto", "vamtoolbox"}:
+        raise ValidationError(
+            "projection_backend must be one of: internal, auto, vamtoolbox."
+        )
+    iterations = _integer(optimizer_iterations, "optimizer_iterations")
+    if not 1 <= iterations <= 100:
+        raise ValidationError("optimizer_iterations must be between 1 and 100.")
 
 
 def validate_stl_path(path: str) -> int:
@@ -249,6 +262,9 @@ def preflight_mesh(
             params.num_frames,
             params.resin,
             params.fill_holes,
+            getattr(params, "projection_backend", "internal"),
+            getattr(params, "optimizer_iterations", 8),
+            getattr(params, "preserve_internal_voids", False),
         )
     except ValidationError as exc:
         return PreflightReport(False, [str(exc)], [], 0, (0.0, 0.0, 0.0), 0, 0)

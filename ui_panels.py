@@ -19,6 +19,7 @@ from typing import Optional
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -35,6 +36,7 @@ from constants import (
     DEFAULT_NUM_FRAMES,
     DEFAULT_OUTPUT_RESOLUTION,
 )
+from i18n import tr
 from model_node import ModelNode
 from widgets import LabeledSlider
 
@@ -102,7 +104,33 @@ class ProcessSettingsPanel(QWidget):
         self.fill_holes = QCheckBox("Сплошная заливка (ремонт сетки)")
         self.fill_holes.setChecked(True)
         grid_layout.addWidget(self.fill_holes)
+        self.preserve_internal_voids = QCheckBox(
+            "Preserve internal voids (bores / threads)"
+        )
+        self.preserve_internal_voids.setChecked(False)
+        grid_layout.addWidget(self.preserve_internal_voids)
         layout.addWidget(grid_box)
+
+        # --- Projection engine --------------------------------------------
+        backend_box = QGroupBox("Projection engine")
+        backend_layout = QVBoxLayout(backend_box)
+        self.projection_backend = QComboBox()
+        self.projection_backend.addItem("Auto: VAMToolbox CAL → Radon fallback", "auto")
+        self.projection_backend.addItem("Internal Radon", "internal")
+        self.projection_backend.addItem("VAMToolbox CAL (optional)", "vamtoolbox")
+        backend_layout.addWidget(self.projection_backend)
+        self.optimizer_iterations = LabeledSlider(
+            "VAM optimizer iterations", 1, 100, 8, decimals=0, step=1,
+        )
+        backend_layout.addWidget(self.optimizer_iterations)
+        backend_hint = QLabel(
+            "Auto uses VAMToolbox when installed and falls back to the internal "
+            "Radon projector otherwise."
+        )
+        backend_hint.setObjectName("hintLabel")
+        backend_hint.setWordWrap(True)
+        backend_layout.addWidget(backend_hint)
+        layout.addWidget(backend_box)
 
         layout.addStretch(1)
         root.addWidget(_scroll_wrap(content))
@@ -110,9 +138,18 @@ class ProcessSettingsPanel(QWidget):
         self.diameter.valueChanged.connect(self.diameterChanged.emit)
         self.diameter.valueChanged.connect(lambda _v: self.settingsChanged.emit())
         self.fill_holes.toggled.connect(lambda _v: self.settingsChanged.emit())
+        self.preserve_internal_voids.toggled.connect(lambda _v: self.settingsChanged.emit())
+        self.projection_backend.currentIndexChanged.connect(lambda _v: self.settingsChanged.emit())
+        self.optimizer_iterations.valueChanged.connect(lambda _v: self.settingsChanged.emit())
 
     def vat_diameter_mm(self) -> float:
         return self.diameter.value()
+
+    def projection_backend_name(self) -> str:
+        return str(self.projection_backend.currentData())
+
+    def optimizer_iterations_value(self) -> int:
+        return self.optimizer_iterations.value_int()
 
 
 class ObjectPanel(QWidget):
@@ -239,9 +276,10 @@ class ObjectPanel(QWidget):
         self.file_label.setText(filename)
         extents = node.base_extents
         self.info_label.setText(
-            f"Вершин: {node.vertex_count:,}\n"
-            f"Граней: {node.face_count:,}\n"
-            f"Исходные размеры: {extents[0]:.2f} × {extents[1]:.2f} × {extents[2]:.2f} мм"
+            f"{tr('Вершин:')} {node.vertex_count:,}\n"
+            f"{tr('Граней:')} {node.face_count:,}\n"
+            f"{tr('Исходные размеры:')} "
+            f"{extents[0]:.2f} × {extents[1]:.2f} × {extents[2]:.2f} {tr('мм')}"
         )
 
     # --- синхронизация с ModelNode ---------------------------------------------

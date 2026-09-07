@@ -20,8 +20,11 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timezone
 
+from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QPlainTextEdit,
@@ -35,10 +38,12 @@ from PyQt6.QtWidgets import (
 from constants import (
     ACCENT_GREEN,
     ACCENT_GREEN_HOVER,
+    APP_ORG,
     APP_TITLE,
     BUTTON_RADIUS,
     PANEL_RADIUS,
 )
+from i18n import LANGUAGES, apply_translations, language, set_language, tr
 from job_controller import JobController
 from simulator_tab import SimulatorTab
 from slicer_tab import SlicerTab
@@ -121,13 +126,18 @@ class CALSlicerMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        self._settings = QSettings(APP_ORG, APP_TITLE)
         self._job_controller = JobController()
 
         self._build_central()
         self._build_status_bar()
         self._wire_signals()
+        index = self.language_combo.findData(language())
+        if index >= 0:
+            self.language_combo.setCurrentIndex(index)
+        apply_translations(self)
 
-        self._log("Готово к работе. Загрузите STL-модель на вкладке «Слайсер», чтобы начать.")
+        self._log(tr("Готово к работе. Загрузите STL-модель на вкладке «Слайсер», чтобы начать."))
 
     # =======================================================================
     # Построение интерфейса
@@ -137,6 +147,19 @@ class CALSlicerMainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(16, 12, 16, 10)
         root.setSpacing(10)
+
+        header = QHBoxLayout()
+        title = QLabel(APP_TITLE)
+        title.setObjectName("panelTitle")
+        header.addWidget(title)
+        header.addStretch(1)
+        self.language_label = QLabel("Язык:")
+        header.addWidget(self.language_label)
+        self.language_combo = QComboBox()
+        for code, label in LANGUAGES.items():
+            self.language_combo.addItem(label, code)
+        header.addWidget(self.language_combo)
+        root.addLayout(header)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -187,6 +210,16 @@ class CALSlicerMainWindow(QMainWindow):
         self.slicer_tab.outputGenerated.connect(self.projector_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self.simulator_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self._on_output_generated)
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+
+    def _on_language_changed(self, index: int) -> None:
+        selected = self.language_combo.itemData(index)
+        if not isinstance(selected, str) or selected == language():
+            return
+        set_language(selected)
+        self._settings.setValue("language", selected)
+        apply_translations(self)
+        self._log(tr("Язык изменён") + ". " + tr("Перезапустите приложение, чтобы применить язык."))
 
     def _on_output_generated(self, out_dir: str) -> None:
         # Мягкая подсказка: переключаем пользователя на следующий логичный
@@ -199,12 +232,12 @@ class CALSlicerMainWindow(QMainWindow):
     # =======================================================================
     def _set_progress(self, frac: float, message: str) -> None:
         self._progress_bar.setValue(int(max(0.0, min(1.0, frac)) * 1000))
-        self._status_label.setText(message)
+        self._status_label.setText(tr(message))
         self._log(message)
 
     def _log(self, message: str) -> None:
         stamp = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
-        self._log_panel.appendPlainText(f"[{stamp}] {message}")
+        self._log_panel.appendPlainText(f"[{stamp}] {tr(message)}")
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
         if self._job_controller.shutdown():
@@ -217,6 +250,11 @@ class CALSlicerMainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+
+    settings = QSettings(APP_ORG, APP_TITLE)
+    saved_language = settings.value("language", "en")
+    if isinstance(saved_language, str) and saved_language in LANGUAGES:
+        set_language(saved_language)
 
     try:
         import qdarktheme

@@ -49,9 +49,39 @@ from validation import (
     validate_slice_parameters,
     validate_stl_path,
 )
+from vam_backend import VAMToolboxUnavailable, optimize_sinograms
 
 ProgressCallback = Callable[[float, str], None]
 CancelCheck = Callable[[], bool]
+
+
+def _radon_sinograms(
+    slices: np.ndarray,
+    angles: np.ndarray,
+    grid_res: int,
+    num_frames: int,
+    report: ProgressCallback,
+    cancelled: CancelCheck,
+) -> np.ndarray:
+    """Calculate the deterministic internal projection sequence."""
+
+    num_layers = int(slices.shape[2])
+    report_step = max(1, num_layers // 25)
+    sinograms = np.zeros((num_layers, grid_res, num_frames), dtype=np.float32)
+    for i in range(num_layers):
+        if cancelled():
+            raise SliceCancelled()
+
+        sino = radon(slices[:, :, i], theta=angles, circle=True)
+        if sino.shape != (grid_res, num_frames):
+            raise ValueError(
+                f"Unexpected Radon shape {sino.shape}; expected {(grid_res, num_frames)}."
+            )
+        sinograms[i] = sino
+
+        if i % report_step == 0:
+            report(0.30 + 0.50 * (i / num_layers), f"Radon {i}/{num_layers}...")
+    return sinograms
 
 
 @dataclass
@@ -72,6 +102,9 @@ class SliceParams:
     fill_holes: bool
     resin: ResinSettings
     output_dir: str
+    projection_backend: str = "internal"
+    optimizer_iterations: int = 8
+    preserve_internal_voids: bool = False
 
     def validate(self) -> None:
         """Validate values before they can determine array dimensions."""
@@ -83,6 +116,9 @@ class SliceParams:
             self.num_frames,
             self.resin,
             self.fill_holes,
+            self.projection_backend,
+            self.optimizer_iterations,
+            self.preserve_internal_voids,
         )
 
 
@@ -131,6 +167,7 @@ class SlicingEngine:
         output_res = params.output_res
         num_frames = params.num_frames
         fill_holes = params.fill_holes
+        preserve_internal_voids = params.preserve_internal_voids
         resin = params.resin
 
         z_min, z_max = mesh.bounds[0][2], mesh.bounds[1][2]
@@ -208,7 +245,8 @@ class SlicingEngine:
                 # 3. Опциональный ремонт сетки (для монолитных / сломанных STL)
                 if fill_holes:
                     arr = binary_closing(arr, structure=np.ones((3, 3)))
-                    arr = binary_fill_holes(arr)
+                    if not preserve_internal_voids:
+                        arr = binary_fill_holes(arr)
 
                 # Уменьшаем с антиалиасингом для мягких краёв
                 img_filled = Image.fromarray((arr * 255).astype(np.uint8))
@@ -218,24 +256,45 @@ class SlicingEngine:
             if i % report_step == 0:
                 report(0.05 + 0.25 * (i / nz), f"Нарезка слоя {i}/{nz}...")
 
-        # --- Radon-преобразование и проекции ---
+        # --- Проекционный backend ------------------------------------------
         angles = (np.linspace(0.0, 360.0, num_frames, endpoint=False) + 90.0) % 360.0
-        report(0.30, "Расчёт Radon-преобразования...")
+        backend = params.projection_backend
 
-        sinograms = np.zeros((nz, grid_res, num_frames), dtype=np.float32)
-        for i in range(nz):
-            if cancelled():
-                raise SliceCancelled()
-
-            sino = radon(slices[:, :, i], theta=angles, circle=True)
-            if sino.shape != (grid_res, num_frames):
-                raise ValueError(
-                    f"Unexpected Radon shape {sino.shape}; expected {(grid_res, num_frames)}."
+        if backend in {"auto", "vamtoolbox"}:
+            report(0.30, "Optimizing projections with VAMToolbox CAL...")
+            try:
+                # VAMToolbox consumes the complete voxel target and returns a
+                # projection sequence.  The adapter normalizes its layout to
+                # the same (z, detector, angle) convention used by the
+                # internal Radon path.
+                sinograms = optimize_sinograms(
+                    slices,
+                    angles,
+                    iterations=params.optimizer_iterations,
                 )
-            sinograms[i] = sino
-
-            if i % report_step == 0:
-                report(0.30 + 0.50 * (i / nz), f"Radon {i}/{nz}...")
+                report(0.78, "VAMToolbox projection optimization complete.")
+            except VAMToolboxUnavailable:
+                if backend == "vamtoolbox":
+                    raise ValidationError(
+                        "VAMToolbox backend was requested but the optional "
+                        "package is not installed."
+                    )
+                report(0.30, "VAMToolbox is unavailable; using internal Radon backend.")
+                sinograms = _radon_sinograms(
+                    slices, angles, grid_res, num_frames, report, cancelled
+                )
+            except Exception:
+                if backend == "vamtoolbox":
+                    raise
+                report(0.30, "VAMToolbox failed; using internal Radon backend.")
+                sinograms = _radon_sinograms(
+                    slices, angles, grid_res, num_frames, report, cancelled
+                )
+        else:
+            report(0.30, "Calculating Radon projections...")
+            sinograms = _radon_sinograms(
+                slices, angles, grid_res, num_frames, report, cancelled
+            )
 
         global_max = float(sinograms.max()) if sinograms.size else 1.0
         if global_max <= 0:
@@ -304,11 +363,17 @@ class SlicingEngine:
         if not isinstance(transform, list):
             transform = np.eye(4, dtype=np.float64).tolist()
         frame_set = FrameRepository.validate(out_dir, require_complete=False)
+        source_name = str(
+            context.get(
+                "source_name",
+                os.path.basename(source_path) if source_path else "",
+            )
+        )
         save_manifest(
             out_dir,
             GenerationManifest(
                 source_sha256=source_hash,
-                source_name=os.path.basename(source_path) if source_path else "",
+                source_name=source_name,
                 units=str(context.get("units", "mm")),
                 transform_matrix=transform,
                 slice_parameters={
@@ -317,6 +382,11 @@ class SlicingEngine:
                     "output_res": params.output_res,
                     "num_frames": params.num_frames,
                     "fill_holes": params.fill_holes,
+                    "projection_backend": params.projection_backend,
+                    "optimizer_iterations": params.optimizer_iterations,
+                    "preserve_internal_voids": params.preserve_internal_voids,
+                    "model_type": str(context.get("model_type", "stl")),
+                    "model_parameters": context.get("model_parameters", {}),
                     "resin": {
                         "base_exposure": params.resin.base_exposure,
                         "intensity": params.resin.intensity,

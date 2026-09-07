@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from i18n import tr
 from job_controller import JobController
 from reconstruction import ReconstructionResult, volume_to_mesh
 from viewport import Viewport3D
@@ -106,11 +107,11 @@ class SimulatorTab(QWidget):
             self.threshold_slider.setEnabled(False)
             self.viewport.clear_model()
         self._output_dir = path
-        self.dir_label.setText(f"Папка кадров: {path}")
+        self.dir_label.setText(f"{tr('Папка кадров: ')}{path}")
 
     def _on_browse_clicked(self) -> None:
         start_dir = self._output_dir or os.getcwd()
-        path = QFileDialog.getExistingDirectory(self, "Выбрать папку с кадрами", start_dir)
+        path = QFileDialog.getExistingDirectory(self, tr("Выбрать папку с кадрами"), start_dir)
         if path:
             self.set_output_dir(path)
 
@@ -119,17 +120,19 @@ class SimulatorTab(QWidget):
         if self._worker is not None and self._worker.isRunning():
             self._worker.request_cancel()
             self.simulate_btn.setEnabled(False)
-            self.simulate_btn.setText("Остановка...")
+            self.simulate_btn.setText("Stopping...")
             return
 
         if not self._output_dir or not os.path.isdir(self._output_dir):
-            QMessageBox.warning(self, "Внимание", "Сначала укажите папку с кадрами (output_frames).")
+            QMessageBox.warning(
+                self, "Warning", "Select a frame folder first (output_frames)."
+            )
             return
 
         self.viewport.clear_model()
         self.threshold_slider.setEnabled(False)
-        self.progress.emit(0.0, "Запуск обратной реконструкции...")
-        self.simulate_btn.setText("⏹ Отменить")
+        self.progress.emit(0.0, "Starting inverse reconstruction...")
+        self.simulate_btn.setText("⏹ Cancel")
 
         self._worker = ReconstructionWorker(self._output_dir, self)
         self._job_controller.register(self._worker)
@@ -144,22 +147,22 @@ class SimulatorTab(QWidget):
         self._result = result
         self.viewport.update_vat(result.diameter_mm)
         self.threshold_slider.setEnabled(True)
-        self.progress.emit(1.0, "Реконструкция завершена.")
+        self.progress.emit(1.0, "Reconstruction complete.")
         self.logMessage.emit(
-            f"Объём восстановлен: сетка {result.grid_res}×{result.grid_res}×{result.nz}."
+            f"Volume reconstructed: grid {result.grid_res}×{result.grid_res}×{result.nz}."
         )
         self._apply_threshold()
 
     def _on_reconstruction_failed(self, msg: str) -> None:
-        self.progress.emit(0.0, "Ошибка реконструкции.")
-        QMessageBox.critical(self, "Ошибка", msg)
+        self.progress.emit(0.0, "Reconstruction failed.")
+        QMessageBox.critical(self, "Error", msg)
 
     def _on_reconstruction_cancelled(self) -> None:
-        self.progress.emit(0.0, "Реконструкция отменена.")
+        self.progress.emit(0.0, "Reconstruction cancelled.")
 
     def _on_worker_thread_finished(self) -> None:
         self.simulate_btn.setEnabled(True)
-        self.simulate_btn.setText("🔬 Симулировать результат")
+        self.simulate_btn.setText("🔬 Simulate result")
 
     # --- порог визуализации (дёшево — без повторного iradon) -------------------------
     def _on_threshold_changed(self, _v: float) -> None:
@@ -173,7 +176,7 @@ class SimulatorTab(QWidget):
 
         self.viewport.clear_model()
         if mesh is None:
-            self.progress.emit(1.0, "При этом пороге геометрия отсутствует — сдвиньте ползунок.")
+            self.progress.emit(1.0, "No geometry at this threshold — move the slider.")
             return
 
         self.viewport.set_model(mesh)

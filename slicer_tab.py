@@ -18,6 +18,7 @@ import trimesh
 from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QMessageBox,
@@ -28,9 +29,12 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import DEFAULT_DIAMETER_MM, FILL_FRACTION, VAT_HEIGHT_RATIO
+from i18n import apply_translations, tr
 from job_controller import JobController
 from model_node import ModelNode
+from nut_dialog import ThreadedNutDialog
 from slicing_engine import ResinSettings, SliceParams
+from threaded_nut import create_threaded_nut
 from ui_panels import ObjectPanel, ProcessSettingsPanel
 from validation import format_preflight_report, preflight_mesh
 from viewport import Viewport3D
@@ -60,6 +64,7 @@ class SlicerTab(QWidget):
 
         self._job_controller = job_controller or JobController()
         self._model_node: Optional[ModelNode] = None
+        self._model_context: dict[str, object] = {"model_type": "stl"}
         self._load_worker: Optional[LoadMeshWorker] = None
         self._gen_worker: Optional[GenerationWorker] = None
         self._last_output_dir: Optional[str] = None
@@ -87,6 +92,13 @@ class SlicerTab(QWidget):
         self.load_btn.setToolTip("Открыть STL-файл модели")
         self.load_btn.clicked.connect(self._on_load_clicked)
         toolbar.addWidget(self.load_btn)
+
+        self.create_nut_btn = QPushButton("⚙ Create threaded nut")
+        self.create_nut_btn.setToolTip(
+            "Generate a parametric nut with a helical internal thread"
+        )
+        self.create_nut_btn.clicked.connect(self._on_create_nut_clicked)
+        toolbar.addWidget(self.create_nut_btn)
 
         self.reset_btn = QPushButton("↺ Сбросить")
         self.reset_btn.setToolTip("Сбросить трансформацию и заново вписать модель в колбу")
@@ -149,7 +161,9 @@ class SlicerTab(QWidget):
     # Загрузка STL
     # =======================================================================
     def _on_load_clicked(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Выбрать STL", "", "STL файлы (*.stl)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Выбрать STL"), "", tr("STL файлы (*.stl)")
+        )
         if not path:
             return
 
@@ -168,6 +182,7 @@ class SlicerTab(QWidget):
         diameter = self._process_panel.vat_diameter_mm()
         node.fit_to_diameter(diameter, FILL_FRACTION)
         self._model_node = node
+        self._model_context = {"model_type": "stl"}
 
         self._viewport.set_model(node.original_mesh)
         self._viewport.update_vat(diameter)
@@ -184,10 +199,61 @@ class SlicerTab(QWidget):
             f"({node.vertex_count:,} верш., {node.face_count:,} гран.)"
         )
 
+    def _on_create_nut_clicked(self) -> None:
+        """Create a parametric threaded nut without requiring an STL file."""
+
+        if self._gen_worker is not None and self._gen_worker.isRunning():
+            QMessageBox.information(
+                self,
+                "Generation in progress",
+                "Wait for the current projection generation to finish or cancel it first.",
+            )
+            return
+
+        dialog = ThreadedNutDialog(self)
+        apply_translations(dialog)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        nut_params = dialog.parameters()
+        try:
+            mesh = create_threaded_nut(nut_params)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Nut generation failed", str(exc))
+            return
+
+        node = ModelNode(mesh)
+        diameter = self._process_panel.vat_diameter_mm()
+        node.fit_to_diameter(diameter, FILL_FRACTION)
+        self._process_panel.preserve_internal_voids.setChecked(True)
+        self._model_node = node
+        self._model_context = {
+            "model_type": "threaded_nut",
+            "source_name": "threaded-nut (parametric)",
+            "model_parameters": nut_params.as_dict(),
+        }
+
+        self._viewport.set_model(node.original_mesh)
+        self._viewport.update_vat(diameter)
+        self._viewport.update_model_transform(node.matrix())
+        self._viewport.reset_camera()
+        self._object_panel.show_model_info(tr("Parametric threaded nut"), node)
+        self._object_panel.sync_from_model(node)
+        self._object_panel.set_enabled_state(True)
+
+        self.progress.emit(1.0, "Threaded nut generated.")
+        self.logMessage.emit(
+            "Generated threaded nut: "
+            f"OD {nut_params.outer_diameter_mm:.2f} mm, "
+            f"bore {nut_params.bore_diameter_mm:.2f} mm, "
+            f"pitch {nut_params.pitch_mm:.2f} mm, "
+            f"{len(mesh.faces):,} triangles."
+        )
+
     def _on_model_load_failed(self, msg: str) -> None:
         self.progress.emit(0.0, "Ошибка загрузки.")
         self.logMessage.emit("ОШИБКА загрузки: " + msg.splitlines()[0])
-        QMessageBox.critical(self, "Ошибка", msg)
+        QMessageBox.critical(self, tr("Ошибка"), msg)
 
     # =======================================================================
     # Трансформации объекта
@@ -277,7 +343,7 @@ class SlicerTab(QWidget):
             return
 
         if self._model_node is None:
-            QMessageBox.warning(self, "Внимание", "Сначала загрузите STL-модель.")
+            QMessageBox.warning(self, tr("Внимание"), tr("Сначала загрузите STL-модель."))
             return
 
         diameter = self._process_panel.vat_diameter_mm()
@@ -301,6 +367,12 @@ class SlicerTab(QWidget):
             fill_holes=self._process_panel.fill_holes.isChecked(),
             resin=resin,
             output_dir=out_dir,
+            projection_backend=self._process_panel.projection_backend_name(),
+            optimizer_iterations=self._process_panel.optimizer_iterations_value(),
+            preserve_internal_voids=(
+                self._process_panel.preserve_internal_voids.isChecked()
+                or self._model_context.get("model_type") == "threaded_nut"
+            ),
         )
 
         # Генерация всегда использует полностью трансформированную копию —
@@ -317,20 +389,22 @@ class SlicerTab(QWidget):
         if not preflight.ok:
             self.progress.emit(0.0, "Проверка модели не пройдена.")
             self.logMessage.emit("ОШИБКА проверки модели: " + "; ".join(preflight.errors))
-            QMessageBox.critical(self, "Модель не готова к slicing", report_text)
+            QMessageBox.critical(self, "Model is not ready for slicing", report_text)
             return
         if preflight.warnings:
             self.logMessage.emit("Предупреждения preflight: " + "; ".join(preflight.warnings))
 
+        manifest_context = {
+            "source_path": self._model_node.source_path,
+            "transform_matrix": self._model_node.matrix().tolist(),
+            "units": "mm",
+            **self._model_context,
+        }
         self._gen_worker = GenerationWorker(
             mesh_to_process,
             params,
             self,
-            manifest_context={
-                "source_path": self._model_node.source_path,
-                "transform_matrix": self._model_node.matrix().tolist(),
-                "units": "mm",
-            },
+            manifest_context=manifest_context,
         )
         self._job_controller.register(self._gen_worker)
         self._gen_worker.progress.connect(self._on_generation_progress)
@@ -339,8 +413,9 @@ class SlicerTab(QWidget):
         self._gen_worker.cancelled.connect(self._on_generation_cancelled)
         self._gen_worker.finished.connect(self._on_generation_thread_finished)
 
-        self.generate_btn.setText("⏹ Отменить генерацию")
+        self.generate_btn.setText("⏹ Cancel generation")
         self.load_btn.setEnabled(False)
+        self.create_nut_btn.setEnabled(False)
         self.logMessage.emit("Запуск генерации проекций...")
         self._gen_worker.start()
 
@@ -352,12 +427,12 @@ class SlicerTab(QWidget):
         self.progress.emit(1.0, "Готово!")
         self.logMessage.emit(f"Сохранено {num_frames} кадров в: {out_dir}")
         self.outputGenerated.emit(out_dir)
-        QMessageBox.information(self, "Успех", f"Сохранено {num_frames} кадров в\n{out_dir}")
+        QMessageBox.information(self, tr("Успех"), f"Saved {num_frames} frames to\n{out_dir}")
 
     def _on_generation_failed(self, msg: str) -> None:
         self.progress.emit(0.0, "Ошибка генерации.")
         self.logMessage.emit("ОШИБКА генерации: " + msg.splitlines()[0])
-        QMessageBox.critical(self, "Ошибка генерации", msg)
+        QMessageBox.critical(self, "Projection generation failed", msg)
 
     def _on_generation_cancelled(self) -> None:
         self.progress.emit(0.0, "Отменено пользователем.")
@@ -365,8 +440,9 @@ class SlicerTab(QWidget):
 
     def _on_generation_thread_finished(self) -> None:
         self.generate_btn.setEnabled(True)
-        self.generate_btn.setText("▶ Сгенерировать проекции")
+        self.generate_btn.setText("▶ Generate projections")
         self.load_btn.setEnabled(True)
+        self.create_nut_btn.setEnabled(True)
 
     # =======================================================================
     # Открыть папку вывода
@@ -374,13 +450,15 @@ class SlicerTab(QWidget):
     def _on_open_output_dir(self) -> None:
         target = self._last_output_dir
         if not target or not os.path.isdir(target):
-            QMessageBox.information(self, "Информация", "Папка вывода ещё не создана.")
+            QMessageBox.information(
+                self, "Information", "The output folder has not been created yet."
+            )
             return
         if not open_local_directory(target):
             QMessageBox.warning(
                 self,
-                "Не удалось открыть папку",
-                "Операционная система не приняла запрос на открытие папки.",
+                "Could not open folder",
+                "The operating system rejected the folder-open request.",
             )
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
