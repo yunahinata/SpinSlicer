@@ -22,6 +22,9 @@ it does not drive a real projector, resin vat, or rotation stage.
 - Reconstruct an approximate 3D volume with filtered back-projection (FBP).
 - Keep every completed run in its own directory with validated metadata and a
   manifest; incomplete runs are not published to the player or simulator.
+- Store provisional machine/resin profiles and a deterministic frame schedule
+  in every completed manifest; the schedule can be replayed by the offline
+  virtual printer before hardware exists.
 - English is the default UI language. Russian remains available from the
   language selector and is stored with the application settings.
 
@@ -122,10 +125,12 @@ player or simulator can consume a run. Legacy flat folders containing
 | `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |
 | `video_tab.py` | Frame playback and MP4 export. |
 | `frame_io.py` | Validated frame-set storage, metadata, and manifests. |
+| `profiles.py` | Validated machine and resin profiles for offline and real jobs. |
 | `validation.py` | Mesh/resource preflight and workload budgets. |
 | `model_node.py` | Original mesh plus GPU-friendly transform state. |
 | `viewport.py` | PyVista/VTK 3D viewport. |
 | `workers.py` | Background Qt workers for load, generation, video, and reconstruction. |
+| `virtual_device.py` | Hardware-free projector/rotation-stage playback and timing checks. |
 | `synthetic_shapes.py` | Canonical numerical-validation phantoms. |
 | `tests/` | Geometry, projection, storage, security, and validation tests. |
 
@@ -137,6 +142,27 @@ Long-running work executes in `QThread` workers and supports cancellation.
 Output directories are committed only after all PNG files and metadata pass
 validation. Local paths are opened through Qt's desktop API rather than a
 shell command.
+
+## Offline machine contract
+
+The current hardware-independent development path is:
+
+```text
+Slicer -> completed run directory -> VirtualPrinter -> future hardware adapter
+```
+
+Each generated manifest contains `machine_profile`, `resin_profile`, and
+`frame_schedule`. The profiles are intentionally provisional until a real
+projector and resin are measured. `virtual_device.VirtualPrinter` validates a
+completed run, replays every frame in its recorded angle order, reports frame
+hashes and timing, and can run either instantly or in real time:
+
+```python
+from virtual_device import VirtualPrinter
+
+report = VirtualPrinter(realtime=False).play("output_frames/run-...")
+print(report.frame_count, report.total_duration_s)
+```
 
 ## Development checks
 

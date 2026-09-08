@@ -74,6 +74,9 @@ class GenerationManifest:
     units: str = "mm"
     transform_matrix: list[list[float]] = field(default_factory=list)
     slice_parameters: dict[str, Any] = field(default_factory=dict)
+    machine_profile: dict[str, Any] = field(default_factory=dict)
+    resin_profile: dict[str, Any] = field(default_factory=dict)
+    frame_schedule: dict[str, Any] = field(default_factory=dict)
     frame_count: int = 0
     frame_size: tuple[int, int] = (0, 0)  # width, height
     complete: bool = False
@@ -222,6 +225,36 @@ def _validate_manifest(manifest: GenerationManifest) -> None:
         manifest.generated_at, str
     ):
         raise ValidationError("Manifest payload fields are invalid.")
+    if not isinstance(manifest.machine_profile, dict):
+        raise ValidationError("Manifest machine_profile must be an object.")
+    if not isinstance(manifest.resin_profile, dict):
+        raise ValidationError("Manifest resin_profile must be an object.")
+    if not isinstance(manifest.frame_schedule, dict):
+        raise ValidationError("Manifest frame_schedule must be an object.")
+    schedule = manifest.frame_schedule
+    raw_angles = schedule.get("angles_deg")
+    if raw_angles is not None:
+        if not isinstance(raw_angles, list) or len(raw_angles) != manifest.frame_count:
+            raise ValidationError("Manifest frame schedule angle count is invalid.")
+        try:
+            if any(not math.isfinite(float(value)) for value in raw_angles):
+                raise ValidationError("Manifest frame schedule angles must be finite.")
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("Manifest frame schedule angles are invalid.") from exc
+    if "frame_duration_s" in schedule:
+        try:
+            duration = float(schedule["frame_duration_s"])
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("Manifest frame duration is invalid.") from exc
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ValidationError("Manifest frame duration must be positive and finite.")
+    if "frame_rate_hz" in schedule:
+        try:
+            frame_rate = float(schedule["frame_rate_hz"])
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("Manifest frame rate is invalid.") from exc
+        if not math.isfinite(frame_rate) or frame_rate <= 0.0:
+            raise ValidationError("Manifest frame rate must be positive and finite.")
     matrix = manifest.transform_matrix
     if not isinstance(matrix, list):
         raise ValidationError("Manifest transform_matrix must be a finite 4×4 matrix.")

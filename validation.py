@@ -82,6 +82,9 @@ def validate_slice_parameters(
     projection_backend: Any = "internal",
     optimizer_iterations: Any = 8,
     preserve_internal_voids: Any = False,
+    frame_rate_hz: Any = 24.0,
+    angle_offset_deg: Any = 90.0,
+    angle_direction: Any = 1,
 ) -> None:
     """Validate parameters before they influence array dimensions or math."""
 
@@ -131,6 +134,13 @@ def validate_slice_parameters(
     iterations = _integer(optimizer_iterations, "optimizer_iterations")
     if not 1 <= iterations <= 100:
         raise ValidationError("optimizer_iterations must be between 1 and 100.")
+    frame_rate = _finite_number(frame_rate_hz, "frame_rate_hz")
+    if not 0.1 <= frame_rate <= 240.0:
+        raise ValidationError("frame_rate_hz must be between 0.1 and 240.")
+    _finite_number(angle_offset_deg, "angle_offset_deg")
+    direction = _integer(angle_direction, "angle_direction")
+    if direction not in {-1, 1}:
+        raise ValidationError("angle_direction must be -1 or 1.")
 
 
 def validate_stl_path(path: str) -> int:
@@ -265,6 +275,9 @@ def preflight_mesh(
             getattr(params, "projection_backend", "internal"),
             getattr(params, "optimizer_iterations", 8),
             getattr(params, "preserve_internal_voids", False),
+            getattr(params, "frame_rate_hz", 24.0),
+            getattr(params, "angle_offset_deg", 90.0),
+            getattr(params, "angle_direction", 1),
         )
     except ValidationError as exc:
         return PreflightReport(False, [str(exc)], [], 0, (0.0, 0.0, 0.0), 0, 0)

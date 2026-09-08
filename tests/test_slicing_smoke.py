@@ -42,3 +42,6 @@ def test_repeated_generation_keeps_completed_runs_and_manifest(tmp_path) -> None
     assert manifest.source_name == Path(source).name
     assert manifest.source_sha256 == sha256_file(str(source))
     assert manifest.transform_matrix[0][0] == 1.0
+    assert manifest.machine_profile["name"] == "offline-unbound"
+    assert manifest.resin_profile["base_exposure_s"] == 1.0
+    assert manifest.frame_schedule["angles_deg"] == [90.0, 135.0, 180.0, 225.0, 270.0, 315.0, 0.0, 45.0]

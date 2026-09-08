@@ -33,7 +33,12 @@ from scipy.ndimage import binary_closing, binary_fill_holes
 from skimage.transform import radon
 from skimage.transform import resize as sk_resize
 
-from constants import ANTI_ALIAS_FACTOR, VAT_HEIGHT_RATIO
+from constants import (
+    ANTI_ALIAS_FACTOR,
+    DEFAULT_ANGLE_OFFSET_DEG,
+    DEFAULT_FRAME_RATE_HZ,
+    VAT_HEIGHT_RATIO,
+)
 from frame_io import (
     FrameRepository,
     GenerationManifest,
@@ -41,6 +46,13 @@ from frame_io import (
     save_manifest,
     save_meta,
     sha256_file,
+)
+from profiles import (
+    MachineProfile,
+    ProfileValidationError,
+    ProjectorProfile,
+    ResinProfile,
+    VatProfile,
 )
 from validation import (
     ValidationError,
@@ -105,6 +117,9 @@ class SliceParams:
     projection_backend: str = "internal"
     optimizer_iterations: int = 8
     preserve_internal_voids: bool = False
+    frame_rate_hz: float = DEFAULT_FRAME_RATE_HZ
+    angle_offset_deg: float = DEFAULT_ANGLE_OFFSET_DEG
+    angle_direction: int = 1
 
     def validate(self) -> None:
         """Validate values before they can determine array dimensions."""
@@ -119,11 +134,75 @@ class SliceParams:
             self.projection_backend,
             self.optimizer_iterations,
             self.preserve_internal_voids,
+            self.frame_rate_hz,
+            self.angle_offset_deg,
+            self.angle_direction,
         )
 
 
 class SliceCancelled(Exception):
     """Поднимается, когда пользователь отменил генерацию из UI."""
+
+
+def _machine_profile_payload(
+    value: Any,
+    diameter_mm: float,
+    output_res: int,
+    target_h: int,
+    frame_rate_hz: float,
+    angle_offset_deg: float,
+    angle_direction: int,
+) -> dict[str, Any]:
+    """Return a validated machine profile for the generated job manifest."""
+
+    try:
+        if value is None:
+            profile = MachineProfile(
+                name="offline-unbound",
+                projector=ProjectorProfile(
+                    name="offline-frame-target",
+                    width_px=output_res,
+                    height_px=max(target_h, 16),
+                    fps=frame_rate_hz,
+                ),
+                vat=VatProfile(
+                    name="virtual-vat",
+                    diameter_mm=diameter_mm,
+                    height_mm=diameter_mm * VAT_HEIGHT_RATIO,
+                ),
+                angle_offset_deg=angle_offset_deg,
+                angle_direction=angle_direction,
+            )
+        elif isinstance(value, MachineProfile):
+            profile = value
+        elif isinstance(value, dict):
+            profile = MachineProfile.from_dict(value)
+        else:
+            raise ProfileValidationError("machine_profile must be an object or MachineProfile.")
+        return profile.to_dict()
+    except ProfileValidationError as exc:
+        raise ValidationError(f"Invalid machine profile: {exc}") from exc
+
+
+def _resin_profile_payload(value: Any, resin: ResinSettings) -> dict[str, Any]:
+    """Return a validated material profile for the generated job manifest."""
+
+    try:
+        if value is None:
+            profile = ResinProfile(
+                base_exposure_s=resin.base_exposure,
+                intensity_pct=resin.intensity,
+                threshold_pct=resin.threshold,
+            )
+        elif isinstance(value, ResinProfile):
+            profile = value
+        elif isinstance(value, dict):
+            profile = ResinProfile.from_dict(value)
+        else:
+            raise ProfileValidationError("resin_profile must be an object or ResinProfile.")
+        return profile.to_dict()
+    except ProfileValidationError as exc:
+        raise ValidationError(f"Invalid resin profile: {exc}") from exc
 
 
 class SlicingEngine:
@@ -207,8 +286,10 @@ class SlicingEngine:
                         slice_2d, _ = to_2d(to_2D=matrix_2d)
                     else:  # trimesh < 5 compatibility
                         slice_2d, _ = slice_3d.to_planar(to_2D=matrix_2d)
-                except Exception:
-                    continue
+                except Exception as exc:
+                    raise ValidationError(
+                        f"Could not rasterize layer {i} at z={z:.6g} mm: {exc}"
+                    ) from exc
 
                 img = Image.new("L", (aa_size, aa_size), color=0)
                 draw = ImageDraw.Draw(img)
@@ -257,7 +338,10 @@ class SlicingEngine:
                 report(0.05 + 0.25 * (i / nz), f"Нарезка слоя {i}/{nz}...")
 
         # --- Проекционный backend ------------------------------------------
-        angles = (np.linspace(0.0, 360.0, num_frames, endpoint=False) + 90.0) % 360.0
+        base_angles = np.linspace(0.0, 360.0, num_frames, endpoint=False)
+        angles = (
+            params.angle_offset_deg + params.angle_direction * base_angles
+        ) % 360.0
         backend = params.projection_backend
 
         if backend in {"auto", "vamtoolbox"}:
@@ -369,6 +453,16 @@ class SlicingEngine:
                 os.path.basename(source_path) if source_path else "",
             )
         )
+        machine_profile = _machine_profile_payload(
+            context.get("machine_profile"),
+            diameter_mm=diameter_mm,
+            output_res=output_res,
+            target_h=target_h,
+            frame_rate_hz=params.frame_rate_hz,
+            angle_offset_deg=params.angle_offset_deg,
+            angle_direction=params.angle_direction,
+        )
+        resin_profile = _resin_profile_payload(context.get("resin_profile"), resin)
         save_manifest(
             out_dir,
             GenerationManifest(
@@ -385,6 +479,9 @@ class SlicingEngine:
                     "projection_backend": params.projection_backend,
                     "optimizer_iterations": params.optimizer_iterations,
                     "preserve_internal_voids": params.preserve_internal_voids,
+                    "frame_rate_hz": params.frame_rate_hz,
+                    "angle_offset_deg": params.angle_offset_deg,
+                    "angle_direction": params.angle_direction,
                     "model_type": str(context.get("model_type", "stl")),
                     "model_parameters": context.get("model_parameters", {}),
                     "resin": {
@@ -395,6 +492,13 @@ class SlicingEngine:
                 },
                 frame_count=frame_set.frame_count,
                 frame_size=(frame_set.width, frame_set.height),
+                machine_profile=machine_profile,
+                resin_profile=resin_profile,
+                frame_schedule={
+                    "angles_deg": [float(angle) for angle in angles],
+                    "frame_duration_s": 1.0 / params.frame_rate_hz,
+                    "frame_rate_hz": params.frame_rate_hz,
+                },
                 complete=True,
                 generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             ),
