@@ -115,17 +115,19 @@ class ProcessSettingsPanel(QWidget):
         backend_box = QGroupBox("Projection engine")
         backend_layout = QVBoxLayout(backend_box)
         self.projection_backend = QComboBox()
-        self.projection_backend.addItem("Auto: VAMToolbox CAL → Radon fallback", "auto")
-        self.projection_backend.addItem("Internal Radon", "internal")
+        self.projection_backend.addItem("SpinSlicer internal Radon (recommended)", "internal")
         self.projection_backend.addItem("VAMToolbox CAL (optional)", "vamtoolbox")
+        self.projection_backend.addItem(
+            "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)", "auto"
+        )
         backend_layout.addWidget(self.projection_backend)
         self.optimizer_iterations = LabeledSlider(
             "VAM optimizer iterations", 1, 100, 8, decimals=0, step=1,
         )
         backend_layout.addWidget(self.optimizer_iterations)
         backend_hint = QLabel(
-            "Auto uses VAMToolbox when installed and falls back to the internal "
-            "Radon projector otherwise."
+            "SpinSlicer internal Radon is the default engine. VAMToolbox is "
+            "available only when explicitly selected."
         )
         backend_hint.setObjectName("hintLabel")
         backend_hint.setWordWrap(True)

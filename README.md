@@ -11,10 +11,10 @@ it does not drive a real projector, resin vat, or rotation stage.
 ## Features
 
 - Load and transform STL models in physical millimetres.
-- Generate projection frames with the deterministic internal Radon backend.
-- Optionally use the external VAMToolbox CAL optimizer when it is installed.
-  The `Auto` mode tries VAMToolbox first and falls back to the internal
-  backend, so the default pip environment remains lightweight.
+- Generate projection frames with the deterministic SpinSlicer internal Radon
+  backend, which is the default engine.
+- Optionally use the external VAMToolbox CAL optimizer when it is installed;
+  it is never selected automatically by the default UI mode.
 - Create a parametric threaded nut without an STL file. The generator builds a
   watertight ring with a helical triangular internal thread, radial clearance,
   configurable pitch, and configurable sampling density.
@@ -83,13 +83,14 @@ VAMToolbox:
 3. normalize the dose response and export a frame sequence;
 4. reconstruct the expected volume for a visual check.
 
-The internal backend uses a robust mesh-section → rasterization → Radon path
-and has no additional installation requirements. The optional VAMToolbox
-backend adapts a voxel target to its `TargetGeometry` and parallel-ray
-`ProjectionGeometry`, then requests the CAL optimizer. It is not pinned in
-`requirements.txt` because the external project uses a separate conda-based
-installation and has its own distribution terms. If VAMToolbox is unavailable,
-`Auto` reports the fallback and continues with the internal projector.
+The internal SpinSlicer backend uses a robust mesh-section → rasterization →
+Radon path and has no additional installation requirements. The optional
+VAMToolbox backend adapts a voxel target to its `TargetGeometry` and
+parallel-ray `ProjectionGeometry`, then requests the CAL optimizer. It is not
+pinned in `requirements.txt` because the external project uses a separate
+conda-based installation and has its own distribution terms. The default UI
+mode is the internal SpinSlicer projector; `Auto` is retained only as an
+experimental compatibility mode.
 
 ## Output format
 
