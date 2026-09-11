@@ -10,7 +10,7 @@ it does not drive a real projector, resin vat, or rotation stage.
 
 ## Preview
 
-![SpinSlicer workspace preview](docs/release-preview.svg)
+![SpinSlicer release preview](docs/orig.webp)
 
 ## Features
 
