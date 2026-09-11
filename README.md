@@ -8,6 +8,10 @@ reconstruction preview.
 The application is intentionally a simulation and projection-preparation tool:
 it does not drive a real projector, resin vat, or rotation stage.
 
+## Preview
+
+![SpinSlicer workspace preview](docs/release-preview.svg)
+
 ## Features
 
 - Load and transform STL models in physical millimetres.

@@ -149,6 +149,48 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
+          name: SpinSlicer ${{ github.ref_name }}
+          body: |
+            ## ✨ SpinSlicer ${{ github.ref_name }}
+
+            A pre-alpha desktop workspace for tomographic volumetric additive manufacturing (VAM).
+
+            > ⚠️ **Experimental build.** This release is intended for local research and UI/algorithm testing. It does not control a real projector, resin vat, or rotation stage.
+
+            ![SpinSlicer workspace preview](https://raw.githubusercontent.com/yunahinata/SpinSlicer/${{ github.ref_name }}/docs/release-preview.svg)
+
+            ### What is included
+
+            - 🧊 STL loading, transforms, and a PyVista/VTK 3D viewport
+            - 🌀 Deterministic projection generation with the internal Radon backend
+            - 🧵 Parametric threaded-nut model for repeatable experiments
+            - 🎞️ Frame playback, MP4 export, and filtered-back-projection preview
+            - ✅ Validated manifests and an offline virtual-printer simulation path
+
+            ### Downloads
+
+            Choose the package for your platform from the files below:
+
+            | Platform | Recommended file |
+            | --- | --- |
+            | Windows 10/11 x64 | `SpinSlicer.exe` or the Windows `.zip` |
+            | Debian/Ubuntu x64 | `.deb` |
+            | Fedora/RHEL x64 | `.rpm` |
+            | Other Linux x64 | Portable `.tar.gz` |
+
+            **Windows:** download `SpinSlicer.exe` and launch it directly. The VC++ runtime needed by NumPy is bundled in this build.
+
+            **Debian/Ubuntu:** `sudo apt install ./SpinSlicer-*.deb`
+
+            **Fedora/RHEL:** `sudo dnf install ./SpinSlicer-*.rpm`
+
+            ### Known limitations
+
+            - Hardware output and automatic exposure feedback are not implemented.
+            - Linux packages target x86_64.
+            - Pre-alpha builds may change file formats and UI behaviour.
+
+            📚 [Read the full README](https://github.com/yunahinata/SpinSlicer#readme) · 🐛 [Report an issue](https://github.com/yunahinata/SpinSlicer/issues/new)
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
