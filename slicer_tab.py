@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import numpy as np
 import trimesh
 from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -263,7 +264,7 @@ class SlicerTab(QWidget):
     def _on_transform_mode_changed(self, mode: str) -> None:
         self._viewport.set_transform_mode(mode)
 
-    def _on_viewport_transform_changed(self, matrix: object) -> None:
+    def _on_viewport_transform_changed(self, matrix: np.ndarray) -> None:
         node = self._model_node
         if node is None:
             return
