@@ -175,6 +175,29 @@ python -m mypy
 
 GitHub Actions runs the same checks on pushes and pull requests.
 
+## Releases
+
+To publish downloadable desktop builds, create and push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `Build release artifacts` workflow then attaches five files to the GitHub
+Release:
+
+- `SpinSlicer-windows-x64.zip` — contains `SpinSlicer.exe` for 64-bit Windows;
+- `SpinSlicer.exe` — standalone Windows executable;
+- `SpinSlicer-linux-x64.tar.gz` — contains the portable 64-bit Linux executable;
+- `SpinSlicer-<version>-amd64.deb` — Debian/Ubuntu package;
+- `SpinSlicer-<version>-1.x86_64.rpm` — Fedora/RHEL-compatible package.
+
+On Linux, unpack the archive and run `chmod +x SpinSlicer && ./SpinSlicer`.
+Alternatively, install the native package with `sudo apt install ./SpinSlicer-<version>-amd64.deb`
+or `sudo dnf install ./SpinSlicer-<version>-1.x86_64.rpm`. Both packages add
+`SpinSlicer` to the desktop application menu. Linux builds target x86_64.
+
 ## Scientific references
 
 - [Tomo — Print Preparation Software](https://opencal-org.readthedocs.io/en/stable/software/tomo/)
