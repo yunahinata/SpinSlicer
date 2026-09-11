@@ -39,7 +39,34 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller==6.12.0
 
-      - name: Build executable
+      - name: Build Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pythonRoot = python -c "import sys; print(sys.base_prefix)"
+          $vcruntime140 = Join-Path $pythonRoot 'vcruntime140.dll'
+          $vcruntime140_1 = Join-Path $pythonRoot 'vcruntime140_1.dll'
+          if (!(Test-Path $vcruntime140) -or !(Test-Path $vcruntime140_1)) {
+            throw 'Python VC++ runtime DLLs were not found'
+          }
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name SpinSlicer `
+            --collect-all qdarktheme `
+            --collect-all pyvista `
+            --collect-all pyvistaqt `
+            --collect-all vtkmodules `
+            --hidden-import vtkmodules.qt.QVTKRenderWindowInteractor `
+            --add-binary "$vcruntime140;." `
+            --add-binary "$vcruntime140_1;." `
+            SpinSlicer.py
+
+      - name: Build Linux executable
+        if: runner.os == 'Linux'
+        shell: bash
         run: >-
           python -m PyInstaller
           --noconfirm
