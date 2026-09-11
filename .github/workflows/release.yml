@@ -166,6 +166,7 @@ jobs:
             - 🧵 Parametric threaded-nut model for repeatable experiments
             - 🎞️ Frame playback, MP4 export, and filtered-back-projection preview
             - ✅ Validated manifests and an offline virtual-printer simulation path
+            - 🛠️ Windows package includes the NumPy-compatible VC++ runtime and current PyInstaller hooks
 
             ### Downloads
 
