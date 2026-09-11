@@ -143,7 +143,9 @@ class SlicerTab(QWidget):
 
     def _wire_signals(self) -> None:
         self._process_panel.diameterChanged.connect(self._on_diameter_changed)
-        self._object_panel.fieldChanged.connect(self._on_object_field_changed)
+        self._object_panel.modeChanged.connect(self._on_transform_mode_changed)
+        self._object_panel.uniform_scale.toggled.connect(self._viewport.set_uniform_scale)
+        self._viewport.transformChanged.connect(self._on_viewport_transform_changed)
         self._object_panel.centerRequested.connect(self._on_center)
         self._object_panel.autoFitRequested.connect(self._on_autofit)
         self._object_panel.resetRequested.connect(self._on_panel_reset)
@@ -258,31 +260,14 @@ class SlicerTab(QWidget):
     # =======================================================================
     # Трансформации объекта
     # =======================================================================
-    def _on_object_field_changed(self, key: str, value: float) -> None:
+    def _on_transform_mode_changed(self, mode: str) -> None:
+        self._viewport.set_transform_mode(mode)
+
+    def _on_viewport_transform_changed(self, matrix: object) -> None:
         node = self._model_node
         if node is None:
             return
-
-        uniform = self._object_panel.is_uniform()
-        if key == "size_x":
-            node.set_size_mm(x=value, uniform=uniform)
-        elif key == "size_y":
-            node.set_size_mm(y=value, uniform=uniform)
-        elif key == "size_z":
-            node.set_size_mm(z=value, uniform=uniform)
-        elif key == "rot_x":
-            node.set_rotation_deg(x=value)
-        elif key == "rot_y":
-            node.set_rotation_deg(y=value)
-        elif key == "rot_z":
-            node.set_rotation_deg(z=value)
-        elif key == "pos_x":
-            node.set_translation_mm(x=value)
-        elif key == "pos_y":
-            node.set_translation_mm(y=value)
-        elif key == "pos_z":
-            node.set_translation_mm(z=value)
-
+        node.set_matrix(matrix, uniform=self._object_panel.is_uniform())
         self._sync_and_redraw()
 
     def _on_center(self) -> None:

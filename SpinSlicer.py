@@ -78,6 +78,13 @@ QPushButton#nudgeButton {{
     padding: 2px 8px;
     font-size: 15px;
 }}
+QLabel#transformValue {{
+    color: #cbd2e1;
+    background-color: #161c27;
+    border: 1px solid #30394a;
+    border-radius: 4px;
+    padding: 5px 7px;
+}}
 QPushButton#generateButton {{
     background-color: {ACCENT_GREEN};
     color: white;

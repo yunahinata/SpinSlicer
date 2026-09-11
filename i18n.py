@@ -46,6 +46,10 @@ _EN: dict[str, str] = {
     "Перемещение": "Move",
     "Вращение": "Rotate",
     "Масштаб": "Scale",
+    "Позиция": "Position",
+    "Размер": "Size",
+    "Тяни цветные стрелки, кольца или квадратные ручки прямо на модели.":
+        "Drag the colored arrows, rings, or square handles directly on the model.",
     "Uniform Scale (сохранять пропорции)": "Uniform scale (keep proportions)",
     "Поворот, °": "Rotation, °",
     "Позиция, мм": "Position, mm",

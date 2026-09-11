@@ -127,6 +127,33 @@ class ModelNode:
         if z is not None:
             t[2] = z
 
+    def set_matrix(self, matrix: np.ndarray, uniform: bool = False) -> None:
+        """Store a matrix produced by an interactive 3D transform widget.
+
+        VTK/PyVista widgets operate on one affine matrix, while the rest of
+        the application stores scale, Euler rotation, and translation as
+        separate fields.  Decomposing at this boundary keeps viewport edits
+        and generated projections on exactly the same transform.
+        """
+        candidate = np.asarray(matrix, dtype=np.float64)
+        if candidate.shape != (4, 4) or not np.all(np.isfinite(candidate)):
+            raise ValueError("Transform matrix must be a finite 4x4 array.")
+
+        scale, _shear, angles, translation, _perspective = tf.decompose_matrix(candidate)
+        scale = np.asarray(scale, dtype=np.float64)
+        if np.any(scale <= 1e-9) or not np.all(np.isfinite(scale)):
+            raise ValueError("Transform matrix contains an invalid scale.")
+
+        if uniform:
+            previous = np.where(self.transform.scale > 1e-9, self.transform.scale, 1.0)
+            ratios = scale / previous
+            changed_axis = int(np.argmax(np.abs(np.log(np.maximum(ratios, 1e-12)))))
+            scale[:] = previous[changed_axis] * ratios[changed_axis]
+
+        self.transform.scale = scale
+        self.transform.rotation_deg = np.degrees(np.asarray(angles, dtype=np.float64))
+        self.transform.translation = np.asarray(translation, dtype=np.float64)
+
     def fit_to_vat(
         self,
         diameter_mm: float,

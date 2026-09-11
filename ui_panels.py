@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -40,7 +39,7 @@ from constants import (
 )
 from i18n import tr
 from model_node import ModelNode
-from widgets import AxisNudgeControl, LabeledSlider
+from widgets import LabeledSlider
 
 
 def _scroll_wrap(inner: QWidget) -> QScrollArea:
@@ -157,16 +156,15 @@ class ProcessSettingsPanel(QWidget):
 
 
 class ObjectPanel(QWidget):
-    """Правая панель: точные физические трансформации выбранной модели."""
+    """Правая панель: режим gizmo и краткие значения трансформации."""
 
-    fieldChanged = pyqtSignal(str, float)
+    modeChanged = pyqtSignal(str)
     centerRequested = pyqtSignal()
     autoFitRequested = pyqtSignal()
     resetRequested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._syncing = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -215,35 +213,23 @@ class ObjectPanel(QWidget):
         self.move_mode_btn.setChecked(True)
         transform_layout.addLayout(mode_row)
 
-        self._transform_stack = QStackedWidget()
-        self.pos_x, self.pos_y, self.pos_z = self._make_axis_controls(
-            self._transform_stack,
-            "мм",
-            minimum=-100.0,
-            maximum=100.0,
-            decimals=2,
-            step=1.0,
-            suffix=" мм",
-        )
-        self.rot_x, self.rot_y, self.rot_z = self._make_axis_controls(
-            self._transform_stack,
-            "°",
-            minimum=-360.0,
-            maximum=360.0,
-            decimals=1,
-            step=15.0,
-            suffix="°",
-        )
-        self.size_x, self.size_y, self.size_z = self._make_axis_controls(
-            self._transform_stack,
-            "мм",
-            minimum=0.1,
-            maximum=500.0,
-            decimals=2,
-            step=1.0,
-            suffix=" мм",
-        )
-        transform_layout.addWidget(self._transform_stack)
+        hint = QLabel("Тяни цветные стрелки, кольца или квадратные ручки прямо на модели.")
+        hint.setObjectName("hintLabel")
+        hint.setWordWrap(True)
+        transform_layout.addWidget(hint)
+
+        self.position_value = QLabel("X 0.00 · Y 0.00 · Z 0.00 мм")
+        self.rotation_value = QLabel("X 0.0 · Y 0.0 · Z 0.0°")
+        self.size_value = QLabel("X 0.00 · Y 0.00 · Z 0.00 мм")
+        for value_label in (self.position_value, self.rotation_value, self.size_value):
+            value_label.setObjectName("transformValue")
+            value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        transform_layout.addWidget(QLabel("Позиция"))
+        transform_layout.addWidget(self.position_value)
+        transform_layout.addWidget(QLabel("Вращение"))
+        transform_layout.addWidget(self.rotation_value)
+        transform_layout.addWidget(QLabel("Размер"))
+        transform_layout.addWidget(self.size_value)
 
         self.uniform_scale = QCheckBox("Uniform Scale (сохранять пропорции)")
         self.uniform_scale.setChecked(True)
@@ -266,73 +252,21 @@ class ObjectPanel(QWidget):
         self._wire_signals()
         self.set_enabled_state(False)
 
-    @staticmethod
-    def _make_axis_controls(
-        stack: QStackedWidget,
-        axis_suffix: str,
-        *,
-        minimum: float,
-        maximum: float,
-        decimals: int,
-        step: float,
-        suffix: str,
-    ) -> tuple[AxisNudgeControl, AxisNudgeControl, AxisNudgeControl]:
-        page = QWidget()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 8, 0, 0)
-        page_layout.setSpacing(6)
-
-        controls = tuple(
-            AxisNudgeControl(
-                f"{axis}, {axis_suffix}",
-                minimum,
-                maximum,
-                0.0 if minimum <= 0.0 else 1.0,
-                decimals=decimals,
-                step=step,
-                suffix=suffix,
-            )
-            for axis in ("X", "Y", "Z")
-        )
-        for control in controls:
-            page_layout.addWidget(control)
-        page_layout.addStretch(1)
-        stack.addWidget(page)
-        return controls[0], controls[1], controls[2]
-
     # --- сигналы -------------------------------------------------------------
     def _wire_signals(self) -> None:
-        field_map = {
-            "size_x": self.size_x, "size_y": self.size_y, "size_z": self.size_z,
-            "rot_x": self.rot_x, "rot_y": self.rot_y, "rot_z": self.rot_z,
-            "pos_x": self.pos_x, "pos_y": self.pos_y, "pos_z": self.pos_z,
-        }
-        for key, w in field_map.items():
-            w.valueChanged.connect(lambda v, k=key: self._emit_field(k, v))
-
-        self.move_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(0))
-        self.rotate_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(1))
-        self.scale_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(2))
+        for button, mode in zip(self._mode_buttons, ("move", "rotate", "scale")):
+            button.clicked.connect(lambda _checked=False, m=mode: self.modeChanged.emit(m))
 
         self.center_btn.clicked.connect(self.centerRequested.emit)
         self.autofit_btn.clicked.connect(self.autoFitRequested.emit)
         self.reset_btn.clicked.connect(self.resetRequested.emit)
-
-    def _emit_field(self, key: str, value: float) -> None:
-        # Во время программной синхронизации (sync_from_model) сигналы
-        # подавляются — иначе пришлось бы обрабатывать самим же собой
-        # порождённое "эхо" на каждое обновление после Uniform Scale.
-        if not self._syncing:
-            self.fieldChanged.emit(key, value)
 
     def is_uniform(self) -> bool:
         return self.uniform_scale.isChecked()
 
     # --- состояние -------------------------------------------------------------
     def set_enabled_state(self, enabled: bool) -> None:
-        for w in (self.size_x, self.size_y, self.size_z, self.uniform_scale,
-                  self.rot_x, self.rot_y, self.rot_z,
-                  self.pos_x, self.pos_y, self.pos_z,
+        for w in (*self._mode_buttons, self.uniform_scale,
                   self.center_btn, self.autofit_btn, self.reset_btn):
             w.setEnabled(enabled)
 
@@ -348,19 +282,15 @@ class ObjectPanel(QWidget):
 
     # --- синхронизация с ModelNode ---------------------------------------------
     def sync_from_model(self, node: ModelNode) -> None:
-        self._syncing = True
         size = node.current_size_mm()
-        self.size_x.setValue(float(size[0]))
-        self.size_y.setValue(float(size[1]))
-        self.size_z.setValue(float(size[2]))
-
         rot = node.transform.rotation_deg
-        self.rot_x.setValue(float(rot[0]))
-        self.rot_y.setValue(float(rot[1]))
-        self.rot_z.setValue(float(rot[2]))
-
         pos = node.transform.translation
-        self.pos_x.setValue(float(pos[0]))
-        self.pos_y.setValue(float(pos[1]))
-        self.pos_z.setValue(float(pos[2]))
-        self._syncing = False
+        self.position_value.setText(
+            f"X {pos[0]:+.2f} · Y {pos[1]:+.2f} · Z {pos[2]:+.2f} мм"
+        )
+        self.rotation_value.setText(
+            f"X {rot[0]:+.1f} · Y {rot[1]:+.1f} · Z {rot[2]:+.1f}°"
+        )
+        self.size_value.setText(
+            f"X {size[0]:.2f} · Y {size[1]:.2f} · Z {size[2]:.2f} мм"
+        )
