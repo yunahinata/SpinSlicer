@@ -27,7 +27,7 @@ import numpy as np
 import pyvista as pv
 import trimesh
 import vtk
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
@@ -97,33 +97,60 @@ class Viewport3D(QWidget):
         self._model_actor: Any = None
         self._affine_widget: Any = None
         self._scale_widget: Any = None
+        self._scale_representation: Any = None
+        self._orientation_cube: Any = None
+        self._orientation_widget: Any = None
         self._affine_enabled = False
         self._transform_mode = "move"
         self._uniform_scale = True
         self._current_diameter = 0.0
+        self._matrix_animation: QVariantAnimation | None = None
+        self._affine_capture_pending = False
+        self._pending_affine_start: np.ndarray | None = None
 
-        try:
-            # Нативный VTK-куб показывает ориентацию сцены и всегда следует
-            # за камерой. Это не картинка, а интерактивный 3D-маркер.
-            plotter.add_box_axes(
-                interactive=False,
-                viewport=(0.78, 0.03, 0.98, 0.23),
-                x_color="#ef6a63",
-                y_color="#62c370",
-                z_color="#5d91ef",
-                x_face_color="#ef6a63",
-                y_face_color="#62c370",
-                z_face_color="#5d91ef",
-                edge_color="#d6d9e0",
-                label_color="#f4f6fb",
-                opacity=0.78,
-            )
-        except Exception:
-            # Старые VTK-сборки могут не поддерживать box axes; основной
-            # вьюпорт и gizmo при этом должны продолжать работать.
-            pass
+        self._create_orientation_cube(plotter)
 
         self._reset_camera_view()
+
+    def _create_orientation_cube(self, plotter: Any) -> None:
+        """Create a compact, clearly labelled XYZ orientation marker."""
+        try:
+            cube = vtk.vtkAnnotatedCubeActor()
+            cube.SetXPlusFaceText("X")
+            cube.SetXMinusFaceText("-X")
+            cube.SetYPlusFaceText("Y")
+            cube.SetYMinusFaceText("-Y")
+            cube.SetZPlusFaceText("Z")
+            cube.SetZMinusFaceText("-Z")
+            cube.SetFaceTextScale(0.34)
+            cube.SetFaceTextVisibility(True)
+            cube.SetTextEdgesVisibility(True)
+            cube.SetCubeVisibility(True)
+            cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
+            cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
+
+            face_colors = (
+                (cube.GetXPlusFaceProperty(), (0.92, 0.28, 0.25)),
+                (cube.GetXMinusFaceProperty(), (0.55, 0.12, 0.12)),
+                (cube.GetYPlusFaceProperty(), (0.25, 0.72, 0.38)),
+                (cube.GetYMinusFaceProperty(), (0.12, 0.42, 0.21)),
+                (cube.GetZPlusFaceProperty(), (0.28, 0.48, 0.92)),
+                (cube.GetZMinusFaceProperty(), (0.14, 0.26, 0.58)),
+            )
+            for prop, color in face_colors:
+                prop.SetColor(*color)
+                prop.SetOpacity(0.96)
+
+            self._orientation_cube = cube
+            self._orientation_widget = plotter.add_orientation_widget(
+                cube,
+                interactive=False,
+                viewport=(0.82, 0.04, 0.98, 0.22),
+            )
+        except Exception:
+            # Keep the scene usable with older VTK builds lacking the marker.
+            self._orientation_cube = None
+            self._orientation_widget = None
 
     # --- камера --------------------------------------------------------------
     def _reset_camera_view(self) -> None:
@@ -201,14 +228,14 @@ class Viewport3D(QWidget):
         """GPU-трансформация модели — без пересчёта вершин на CPU."""
         if self._model_actor is None:
             return
+        self._stop_matrix_animation()
         matrix = np.asarray(matrix_4x4, dtype=np.float64).copy()
-        self._model_actor.user_matrix = matrix
+        self._set_actor_matrix(matrix)
         if self._affine_widget is not None:
             # AffineWidget3D caches the matrix between drag gestures.
             self._affine_widget._cached_matrix = matrix.copy()
-        if self._scale_widget is not None:
-            self._scale_widget.SetTransform(_numpy_to_vtk_transform(matrix))
-        self.plotter.render()
+        if self._scale_representation is not None:
+            self._scale_representation.SetTransform(_numpy_to_vtk_transform(matrix))
 
     def clear_model(self) -> None:
         self._remove_transform_widgets()
@@ -230,34 +257,51 @@ class Viewport3D(QWidget):
             line_radius=0.025,
             always_visible=True,
             axes_colors=("#ef6a63", "#62c370", "#5d91ef"),
+            interact_callback=self._on_affine_interact,
             release_callback=self._on_affine_release,
         )
 
-        # vtkBoxWidget даёт шесть квадратных ручек масштаба. Поворот и
-        # перемещение самого бокса отключены: в режиме «Масштаб» пользователь
-        # меняет только размер модели по выбранной оси.
-        scale_widget = vtk.vtkBoxWidget()
+        # vtkBoxWidget2 + vtkBoxRepresentation дают шесть квадратных ручек
+        # масштаба без устаревшего vtkBoxWidget. Поворот и перемещение самого
+        # бокса отключены: в режиме «Масштаб» меняется только размер модели.
+        scale_representation = vtk.vtkBoxRepresentation()
+        scale_representation.SetPlaceFactor(1.08)
+        # trimesh stores bounds as [[xmin, ymin, zmin], [xmax, ymax, zmax]],
+        # while VTK expects (xmin, xmax, ymin, ymax, zmin, zmax).
+        mesh_bounds = mesh.bounds
+        bounds = (
+            float(mesh_bounds[0, 0]), float(mesh_bounds[1, 0]),
+            float(mesh_bounds[0, 1]), float(mesh_bounds[1, 1]),
+            float(mesh_bounds[0, 2]), float(mesh_bounds[1, 2]),
+        )
+        scale_representation.PlaceWidget(bounds)
+        scale_representation.SetTransform(_numpy_to_vtk_transform(np.eye(4, dtype=np.float64)))
+        scale_representation.SetHandleSize(0.018)
+        scale_representation.GetHandleProperty().SetColor(0.95, 0.76, 0.22)
+        scale_representation.GetSelectedHandleProperty().SetColor(1.0, 0.92, 0.35)
+        scale_representation.GetFaceProperty().SetOpacity(0.035)
+        scale_representation.GetSelectedFaceProperty().SetOpacity(0.14)
+        scale_representation.GetOutlineProperty().SetColor(0.95, 0.76, 0.22)
+        scale_representation.GetSelectedOutlineProperty().SetColor(1.0, 0.92, 0.35)
+
+        scale_widget = vtk.vtkBoxWidget2()
         scale_widget.SetInteractor(self.plotter.iren.interactor)
         scale_widget.SetCurrentRenderer(self.plotter.renderer)
-        scale_widget.SetPlaceFactor(1.08)
+        scale_widget.SetRepresentation(scale_representation)
         scale_widget.SetRotationEnabled(False)
         scale_widget.SetTranslationEnabled(False)
-        bounds = tuple(float(value) for value in mesh.bounds.ravel())
-        scale_widget.PlaceWidget(*bounds)
-        scale_widget.SetTransform(_numpy_to_vtk_transform(np.eye(4, dtype=np.float64)))
-        scale_widget.SetHandleSize(0.015)
-        scale_widget.GetHandleProperty().SetColor(0.95, 0.76, 0.22)
-        scale_widget.GetSelectedHandleProperty().SetColor(1.0, 0.92, 0.35)
-        scale_widget.GetFaceProperty().SetOpacity(0.04)
-        scale_widget.GetSelectedFaceProperty().SetOpacity(0.14)
-        scale_widget.GetOutlineProperty().SetColor(0.95, 0.76, 0.22)
-        scale_widget.GetSelectedOutlineProperty().SetColor(1.0, 0.92, 0.35)
+        scale_widget.SetScalingEnabled(True)
+        scale_widget.SetMoveFacesEnabled(True)
         scale_widget.AddObserver(vtk.vtkCommand.InteractionEvent, self._on_scale_interaction)
         scale_widget.AddObserver(vtk.vtkCommand.EndInteractionEvent, self._on_scale_release)
         scale_widget.Off()
         self._scale_widget = scale_widget
+        self._scale_representation = scale_representation
 
     def _remove_transform_widgets(self) -> None:
+        self._stop_matrix_animation()
+        self._affine_capture_pending = False
+        self._pending_affine_start = None
         if self._affine_widget is not None:
             self._affine_widget.remove()
             self._affine_widget = None
@@ -266,6 +310,7 @@ class Viewport3D(QWidget):
             self._scale_widget.Off()
             self._scale_widget.RemoveAllObservers()
             self._scale_widget = None
+        self._scale_representation = None
 
     def set_uniform_scale(self, enabled: bool) -> None:
         self._uniform_scale = bool(enabled)
@@ -296,27 +341,111 @@ class Viewport3D(QWidget):
             self._affine_enabled = False
         self.plotter.render()
 
+    def _on_affine_interact(self, previous_matrix: np.ndarray) -> None:
+        """Ease each small affine-widget update instead of snapping."""
+        self._pending_affine_start = np.asarray(previous_matrix, dtype=np.float64).copy()
+        if not self._affine_capture_pending:
+            self._affine_capture_pending = True
+            QTimer.singleShot(0, self._animate_pending_affine)
+
+    def _animate_pending_affine(self) -> None:
+        self._affine_capture_pending = False
+        if self._model_actor is None:
+            return
+        target = np.asarray(self._model_actor.user_matrix, dtype=np.float64).copy()
+        start = self._pending_affine_start
+        self._pending_affine_start = None
+        if start is None or start.shape != (4, 4) or not np.all(np.isfinite(start)):
+            start = target.copy()
+        self._animate_actor_matrix(start, target, duration=80)
+
     def _on_affine_release(self, matrix: np.ndarray) -> None:
-        self._emit_transform_changed(np.asarray(matrix, dtype=np.float64))
+        self._affine_capture_pending = False
+        self._pending_affine_start = None
+        final_matrix = np.asarray(matrix, dtype=np.float64).copy()
+        self._stop_matrix_animation()
+        self._set_actor_matrix(final_matrix)
+        if self._affine_widget is not None:
+            self._affine_widget._cached_matrix = final_matrix.copy()
+        self._emit_transform_changed(final_matrix)
 
     def _scale_widget_matrix(self) -> np.ndarray | None:
-        if self._scale_widget is None:
+        if self._scale_representation is None:
             return None
         transform = vtk.vtkTransform()
-        self._scale_widget.GetTransform(transform)
+        self._scale_representation.GetTransform(transform)
         return _vtk_transform_to_numpy(transform)
 
-    def _on_scale_interaction(self, _widget: vtk.vtkBoxWidget, _event: str) -> None:
+    def _on_scale_interaction(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
         matrix = self._scale_widget_matrix()
         if matrix is None or self._model_actor is None:
             return
-        self._model_actor.user_matrix = matrix
-        self.plotter.render()
+        current = np.asarray(self._model_actor.user_matrix, dtype=np.float64).copy()
+        self._animate_actor_matrix(current, matrix, duration=60)
 
-    def _on_scale_release(self, _widget: vtk.vtkBoxWidget, _event: str) -> None:
+    def _on_scale_release(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
         matrix = self._scale_widget_matrix()
         if matrix is not None:
+            self._stop_matrix_animation()
+            self._set_actor_matrix(matrix)
             self._emit_transform_changed(matrix)
+
+    def _set_actor_matrix(self, matrix: np.ndarray) -> None:
+        if self._model_actor is None:
+            return
+        self._model_actor.user_matrix = np.asarray(matrix, dtype=np.float64).copy()
+        self.plotter.render()
+
+    def _stop_matrix_animation(self) -> None:
+        if self._matrix_animation is not None:
+            self._matrix_animation.stop()
+            self._matrix_animation.deleteLater()
+            self._matrix_animation = None
+
+    def _animate_actor_matrix(
+        self,
+        start: np.ndarray,
+        target: np.ndarray,
+        *,
+        duration: int,
+    ) -> None:
+        if self._model_actor is None:
+            return
+        start_matrix = np.asarray(start, dtype=np.float64).copy()
+        target_matrix = np.asarray(target, dtype=np.float64).copy()
+        if (
+            start_matrix.shape != (4, 4)
+            or target_matrix.shape != (4, 4)
+            or not np.all(np.isfinite(start_matrix))
+            or not np.all(np.isfinite(target_matrix))
+        ):
+            return
+        self._stop_matrix_animation()
+        if np.allclose(start_matrix, target_matrix, rtol=0.0, atol=1e-8):
+            self._set_actor_matrix(target_matrix)
+            return
+
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(duration)
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        animation.valueChanged.connect(
+            lambda value: self._set_actor_matrix(
+                start_matrix + (target_matrix - start_matrix) * float(value),
+            )
+        )
+
+        def finish() -> None:
+            self._set_actor_matrix(target_matrix)
+            if self._matrix_animation is animation:
+                self._matrix_animation = None
+            animation.deleteLater()
+
+        animation.finished.connect(finish)
+        self._matrix_animation = animation
+        self._set_actor_matrix(start_matrix)
+        animation.start()
 
     def _emit_transform_changed(self, matrix: np.ndarray) -> None:
         if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
