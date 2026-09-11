@@ -161,6 +161,7 @@ jobs:
 
             - 🧊 STL loading, transforms, and a PyVista/VTK 3D viewport
             - 🎛️ Direct 3D gizmo with movement arrows, rotation rings, scale handles, and an XYZ orientation cube
+            - ✨ Eased transform animation for smoother move, rotate, and scale interactions
             - 🌀 Deterministic projection generation with the internal Radon backend
             - 🧵 Parametric threaded-nut model for repeatable experiments
             - 🎞️ Frame playback, MP4 export, and filtered-back-projection preview
