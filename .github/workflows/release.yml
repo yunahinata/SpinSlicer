@@ -157,8 +157,6 @@ jobs:
 
             > ⚠️ **Experimental build.** This release is intended for local research and UI/algorithm testing. It does not control a real projector, resin vat, or rotation stage.
 
-            ![SpinSlicer release preview](https://raw.githubusercontent.com/yunahinata/SpinSlicer/${{ github.ref_name }}/docs/orig.webp)
-
             ### What is included
 
             - 🧊 STL loading, transforms, and a PyVista/VTK 3D viewport
