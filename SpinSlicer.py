@@ -66,6 +66,18 @@ QPushButton {{
     border-radius: {BUTTON_RADIUS}px;
     padding: 6px 14px;
 }}
+QPushButton#transformModeButton {{
+    padding: 5px 6px;
+}}
+QPushButton#transformModeButton:checked {{
+    background-color: #4f72d9;
+    color: white;
+    font-weight: 600;
+}}
+QPushButton#nudgeButton {{
+    padding: 2px 8px;
+    font-size: 15px;
+}}
 QPushButton#generateButton {{
     background-color: {ACCENT_GREEN};
     color: white;

@@ -18,6 +18,7 @@ from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -38,7 +40,7 @@ from constants import (
 )
 from i18n import tr
 from model_node import ModelNode
-from widgets import LabeledSlider
+from widgets import AxisNudgeControl, LabeledSlider
 
 
 def _scroll_wrap(inner: QWidget) -> QScrollArea:
@@ -189,42 +191,64 @@ class ObjectPanel(QWidget):
         info_layout.addWidget(self.info_label)
         layout.addWidget(info_box)
 
-        # --- Размер, мм -----------------------------------------------------
-        size_box = QGroupBox("Размер, мм")
-        size_layout = QVBoxLayout(size_box)
-        self.size_x = LabeledSlider("X, мм", 0.1, 500.0, 1.0, decimals=2)
-        self.size_y = LabeledSlider("Y, мм", 0.1, 500.0, 1.0, decimals=2)
-        self.size_z = LabeledSlider("Z, мм", 0.1, 500.0, 1.0, decimals=2)
-        size_layout.addWidget(self.size_x)
-        size_layout.addWidget(self.size_y)
-        size_layout.addWidget(self.size_z)
+        # --- Bambu-style transform modes -----------------------------------
+        transform_box = QGroupBox("Трансформация")
+        transform_layout = QVBoxLayout(transform_box)
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(4)
+        self.move_mode_btn = QPushButton("Перемещение")
+        self.rotate_mode_btn = QPushButton("Вращение")
+        self.scale_mode_btn = QPushButton("Масштаб")
+        self._mode_buttons = (
+            self.move_mode_btn,
+            self.rotate_mode_btn,
+            self.scale_mode_btn,
+        )
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        for index, button in enumerate(self._mode_buttons):
+            button.setCheckable(True)
+            button.setObjectName("transformModeButton")
+            self._mode_group.addButton(button, index)
+            mode_row.addWidget(button, 1)
+        self.move_mode_btn.setChecked(True)
+        transform_layout.addLayout(mode_row)
+
+        self._transform_stack = QStackedWidget()
+        self.pos_x, self.pos_y, self.pos_z = self._make_axis_controls(
+            self._transform_stack,
+            "мм",
+            minimum=-100.0,
+            maximum=100.0,
+            decimals=2,
+            step=1.0,
+            suffix=" мм",
+        )
+        self.rot_x, self.rot_y, self.rot_z = self._make_axis_controls(
+            self._transform_stack,
+            "°",
+            minimum=-360.0,
+            maximum=360.0,
+            decimals=1,
+            step=15.0,
+            suffix="°",
+        )
+        self.size_x, self.size_y, self.size_z = self._make_axis_controls(
+            self._transform_stack,
+            "мм",
+            minimum=0.1,
+            maximum=500.0,
+            decimals=2,
+            step=1.0,
+            suffix=" мм",
+        )
+        transform_layout.addWidget(self._transform_stack)
 
         self.uniform_scale = QCheckBox("Uniform Scale (сохранять пропорции)")
         self.uniform_scale.setChecked(True)
-        size_layout.addWidget(self.uniform_scale)
-        layout.addWidget(size_box)
-
-        # --- Поворот ------------------------------------------------------
-        rot_box = QGroupBox("Поворот, °")
-        rot_layout = QVBoxLayout(rot_box)
-        self.rot_x = LabeledSlider("Rot X", -180.0, 180.0, 0.0, decimals=1)
-        self.rot_y = LabeledSlider("Rot Y", -180.0, 180.0, 0.0, decimals=1)
-        self.rot_z = LabeledSlider("Rot Z", -180.0, 180.0, 0.0, decimals=1)
-        rot_layout.addWidget(self.rot_x)
-        rot_layout.addWidget(self.rot_y)
-        rot_layout.addWidget(self.rot_z)
-        layout.addWidget(rot_box)
-
-        # --- Позиция --------------------------------------------------------
-        pos_box = QGroupBox("Позиция, мм")
-        pos_layout = QVBoxLayout(pos_box)
-        self.pos_x = LabeledSlider("Сдвиг X", -100.0, 100.0, 0.0, decimals=2)
-        self.pos_y = LabeledSlider("Сдвиг Y", -100.0, 100.0, 0.0, decimals=2)
-        self.pos_z = LabeledSlider("Сдвиг Z", -100.0, 100.0, 0.0, decimals=2)
-        pos_layout.addWidget(self.pos_x)
-        pos_layout.addWidget(self.pos_y)
-        pos_layout.addWidget(self.pos_z)
-        layout.addWidget(pos_box)
+        transform_layout.addWidget(self.uniform_scale)
+        layout.addWidget(transform_box)
 
         # --- Быстрые действия -------------------------------------------
         actions = QHBoxLayout()
@@ -242,6 +266,40 @@ class ObjectPanel(QWidget):
         self._wire_signals()
         self.set_enabled_state(False)
 
+    @staticmethod
+    def _make_axis_controls(
+        stack: QStackedWidget,
+        axis_suffix: str,
+        *,
+        minimum: float,
+        maximum: float,
+        decimals: int,
+        step: float,
+        suffix: str,
+    ) -> tuple[AxisNudgeControl, AxisNudgeControl, AxisNudgeControl]:
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 8, 0, 0)
+        page_layout.setSpacing(6)
+
+        controls = tuple(
+            AxisNudgeControl(
+                f"{axis}, {axis_suffix}",
+                minimum,
+                maximum,
+                0.0 if minimum <= 0.0 else 1.0,
+                decimals=decimals,
+                step=step,
+                suffix=suffix,
+            )
+            for axis in ("X", "Y", "Z")
+        )
+        for control in controls:
+            page_layout.addWidget(control)
+        page_layout.addStretch(1)
+        stack.addWidget(page)
+        return controls[0], controls[1], controls[2]
+
     # --- сигналы -------------------------------------------------------------
     def _wire_signals(self) -> None:
         field_map = {
@@ -251,6 +309,10 @@ class ObjectPanel(QWidget):
         }
         for key, w in field_map.items():
             w.valueChanged.connect(lambda v, k=key: self._emit_field(k, v))
+
+        self.move_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(0))
+        self.rotate_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(1))
+        self.scale_mode_btn.clicked.connect(lambda: self._transform_stack.setCurrentIndex(2))
 
         self.center_btn.clicked.connect(self.centerRequested.emit)
         self.autofit_btn.clicked.connect(self.autoFitRequested.emit)
