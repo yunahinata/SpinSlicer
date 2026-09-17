@@ -1,8 +1,8 @@
 """
 slicer_tab.py
 =============
-Вкладка "Слайсер": настройки процесса, 3D-вьюпорт с колбой на PyVista,
-панель трансформации объекта и генерация проекций в фоновом QThread.
+Вкладка "Слайсер": 3D-вьюпорт с колбой на PyVista, компактное управление
+трансформацией объекта и генерация проекций в фоновом QThread.
 
 Логика идентична прежней главной версии окна — она просто перенесена
 внутрь QWidget, чтобы стать одной из вкладок QTabWidget. Локальные
@@ -23,17 +23,16 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from constants import DEFAULT_DIAMETER_MM, FILL_FRACTION, VAT_HEIGHT_RATIO
+from constants import FILL_FRACTION, VAT_HEIGHT_RATIO
 from i18n import tr
 from job_controller import JobController
 from model_node import ModelNode
 from slicing_engine import ResinSettings, SliceParams
-from ui_panels import ObjectPanel, ProcessSettingsPanel
+from ui_panels import ProcessSettingsPanel, TransformToolbar
 from validation import format_preflight_report, preflight_mesh
 from viewport import Viewport3D
 from workers import GenerationWorker, LoadMeshWorker
@@ -57,10 +56,14 @@ class SlicerTab(QWidget):
         self,
         parent: Optional[QWidget] = None,
         job_controller: Optional[JobController] = None,
+        process_panel: Optional[ProcessSettingsPanel] = None,
     ):
         super().__init__(parent)
 
         self._job_controller = job_controller or JobController()
+        self._process_panel = (
+            process_panel if process_panel is not None else ProcessSettingsPanel(self)
+        )
         self._model_node: Optional[ModelNode] = None
         self._load_worker: Optional[LoadMeshWorker] = None
         self._gen_worker: Optional[GenerationWorker] = None
@@ -73,7 +76,7 @@ class SlicerTab(QWidget):
         self._build_ui()
         self._wire_signals()
 
-        self._viewport.update_vat(DEFAULT_DIAMETER_MM)
+        self._viewport.update_vat(self._process_panel.vat_diameter_mm())
         self.progress.emit(0.0, "Готово к работе. Загрузите STL-модель, чтобы начать.")
 
     # =======================================================================
@@ -108,37 +111,20 @@ class SlicerTab(QWidget):
         toolbar.addStretch(1)
         root.addLayout(toolbar)
 
-        splitter = QSplitter()
-        splitter.setChildrenCollapsible(False)
-
-        self._process_panel = ProcessSettingsPanel()
-        self._process_panel.setMinimumWidth(300)
-        self._process_panel.setMaximumWidth(380)
-
+        # Настройки принтера находятся на отдельной вкладке, поэтому слайсер
+        # оставляет вьюпорту всю ширину окна.
         self._viewport = Viewport3D()
-
-        self._object_panel = ObjectPanel()
-        self._object_panel.setMinimumWidth(300)
-        self._object_panel.setMaximumWidth(380)
-
-        splitter.addWidget(self._process_panel)
-        splitter.addWidget(self._viewport)
-        splitter.addWidget(self._object_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([320, 900, 320])
-
-        root.addWidget(splitter, 1)
+        self._transform_toolbar = TransformToolbar()
+        root.addWidget(self._transform_toolbar)
+        root.addWidget(self._viewport, 1)
 
     def _wire_signals(self) -> None:
         self._process_panel.diameterChanged.connect(self._on_diameter_changed)
-        self._object_panel.modeChanged.connect(self._on_transform_mode_changed)
-        self._object_panel.uniform_scale.toggled.connect(self._viewport.set_uniform_scale)
+        self._transform_toolbar.modeChanged.connect(self._on_transform_mode_changed)
+        self._transform_toolbar.uniform_scale.toggled.connect(self._viewport.set_uniform_scale)
         self._viewport.transformChanged.connect(self._on_viewport_transform_changed)
-        self._object_panel.centerRequested.connect(self._on_center)
-        self._object_panel.autoFitRequested.connect(self._on_autofit)
-        self._object_panel.resetRequested.connect(self._on_panel_reset)
+        self._transform_toolbar.centerRequested.connect(self._on_center)
+        self._transform_toolbar.autoFitRequested.connect(self._on_autofit)
 
     # =======================================================================
     # Колба (не зависит от модели)
@@ -180,9 +166,7 @@ class SlicerTab(QWidget):
         self._viewport.update_model_transform(node.matrix())
         self._viewport.reset_camera()
 
-        self._object_panel.show_model_info(os.path.basename(path), node)
-        self._object_panel.sync_from_model(node)
-        self._object_panel.set_enabled_state(True)
+        self._transform_toolbar.set_enabled_state(True)
 
         self.progress.emit(1.0, "Модель загружена.")
         self.logMessage.emit(
@@ -205,7 +189,7 @@ class SlicerTab(QWidget):
         node = self._model_node
         if node is None:
             return
-        node.set_matrix(matrix, uniform=self._object_panel.is_uniform())
+        node.set_matrix(matrix, uniform=self._transform_toolbar.is_uniform())
         self._sync_and_redraw()
 
     def _on_center(self) -> None:
@@ -228,14 +212,6 @@ class SlicerTab(QWidget):
             f"размер {size[0]:.2f} × {size[1]:.2f} × {size[2]:.2f} мм."
         )
 
-    def _on_panel_reset(self) -> None:
-        """Сброс трансформации к чистому масштабу 1:1 (кнопка на правой панели)."""
-        if self._model_node is None:
-            return
-        self._model_node.reset()
-        self._sync_and_redraw()
-        self.logMessage.emit("Трансформация объекта сброшена (масштаб 1:1).")
-
     def _on_toolbar_reset(self) -> None:
         """Сброс + повторный авто-фит под колбу (кнопка в шапке вкладки)."""
         if self._model_node is None:
@@ -252,7 +228,6 @@ class SlicerTab(QWidget):
         node = self._model_node
         if node is None:
             return
-        self._object_panel.sync_from_model(node)
         self._viewport.update_model_transform(node.matrix())
 
     # =======================================================================

@@ -360,12 +360,9 @@ class SlicingEngine:
                     iterations=params.optimizer_iterations,
                 )
                 report(0.78, "VAMToolbox projection optimization complete.")
-            except VAMToolboxUnavailable:
+            except VAMToolboxUnavailable as exc:
                 if backend == "vamtoolbox":
-                    raise ValidationError(
-                        "VAMToolbox backend was requested but the optional "
-                        "package is not installed."
-                    )
+                    raise ValidationError(str(exc)) from exc
                 report(0.30, "VAMToolbox is unavailable; using internal Radon backend.")
                 sinograms = _radon_sinograms(
                     slices, angles, grid_res, num_frames, report, cancelled

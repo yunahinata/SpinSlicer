@@ -1,11 +1,12 @@
 """
 
-Главное окно — тонкая оболочка над тремя вкладками:
+Главное окно — тонкая оболочка над вкладками приложения:
 
   1. "🧊 Слайсер"         — генерация проекций (slicer_tab.SlicerTab).
-  2. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
+  2. "Настройки"          — параметры принтера и процесса.
+  3. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
                               (video_tab.ProjectorTab).
-  3. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
+  4. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
                               (simulator_tab.SimulatorTab).
 
 Статус-бар, прогресс-бар и лог — ОБЩИЕ для всего приложения и живут
@@ -49,6 +50,7 @@ from i18n import LANGUAGES, apply_translations, language, set_language, tr
 from job_controller import JobController
 from simulator_tab import SimulatorTab
 from slicer_tab import SlicerTab
+from ui_panels import ProcessSettingsPanel
 from video_tab import ProjectorTab
 
 
@@ -198,17 +200,23 @@ class CALSlicerMainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
 
-        self.slicer_tab = SlicerTab(job_controller=self._job_controller)
+        self.settings_tab = ProcessSettingsPanel()
+        self.slicer_tab = SlicerTab(
+            job_controller=self._job_controller,
+            process_panel=self.settings_tab,
+        )
         self.projector_tab = ProjectorTab(job_controller=self._job_controller)
         self.simulator_tab = SimulatorTab(job_controller=self._job_controller)
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
+        self.tabs.addTab(self.settings_tab, "Настройки")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
         self.tabs.addTab(self.simulator_tab, "🔬 Симулятор")
 
         self.tabs.setTabToolTip(0, "Настройка модели и генерация проекций")
-        self.tabs.setTabToolTip(1, "Проигрывание и экспорт готовых кадров в MP4")
-        self.tabs.setTabToolTip(2, "Обратная реконструкция геометрии по кадрам")
+        self.tabs.setTabToolTip(1, "Настройки принтера и процесса печати")
+        self.tabs.setTabToolTip(2, "Проигрывание и экспорт готовых кадров в MP4")
+        self.tabs.setTabToolTip(3, "Обратная реконструкция геометрии по кадрам")
 
         root.addWidget(self.tabs, 1)
 
@@ -234,7 +242,7 @@ class CALSlicerMainWindow(QMainWindow):
         bar.addPermanentWidget(self._progress_bar)
 
     def _wire_signals(self) -> None:
-        # Прогресс и лог у всех трёх вкладок стекаются в общий статус-бар/лог.
+        # Прогресс и лог рабочих вкладок стекаются в общий статус-бар/лог.
         for tab in (self.slicer_tab, self.projector_tab, self.simulator_tab):
             tab.progress.connect(self._set_progress)
             tab.logMessage.connect(self._log)
@@ -259,7 +267,7 @@ class CALSlicerMainWindow(QMainWindow):
         # Мягкая подсказка: переключаем пользователя на следующий логичный
         # шаг, не мешая — если он уже сам открыл другую вкладку, не трогаем.
         if self.tabs.currentIndex() == 0:
-            self.tabs.setTabToolTip(1, f"Кадры готовы: {out_dir}")
+            self.tabs.setTabToolTip(2, f"Кадры готовы: {out_dir}")
 
     # =======================================================================
     # Статус / лог (общие для всех вкладок)

@@ -19,6 +19,9 @@ it does not drive a real projector, resin vat, or rotation stage.
 ## Features
 
 - Load and transform STL models in physical millimetres.
+- Keep printer and process parameters on a dedicated Settings tab.
+- Edit the model in a full-width 3D viewport with a visible vat bottom plane
+  and an interactive Fusion-style view cube.
 - Generate projection frames with the deterministic SpinSlicer internal Radon
   backend, which is the default engine.
 - Optionally use the external VAMToolbox CAL optimizer when it is installed;
@@ -113,7 +116,7 @@ player or simulator can consume a run. Legacy flat folders containing
 | `slicer_tab.py` | STL loading, transformation, and projection generation UI. |
 | `nut_dialog.py` | Legacy threaded-nut dialog kept for API compatibility. |
 | `threaded_nut.py` | Legacy parametric nut generator kept for API compatibility. |
-| `ui_panels.py` | Process settings and model transform panels. |
+| `ui_panels.py` | Printer/process settings and compact model transform controls. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |
 | `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |

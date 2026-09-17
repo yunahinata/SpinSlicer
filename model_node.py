@@ -148,7 +148,10 @@ class ModelNode:
             previous = np.where(self.transform.scale > 1e-9, self.transform.scale, 1.0)
             ratios = scale / previous
             changed_axis = int(np.argmax(np.abs(np.log(np.maximum(ratios, 1e-12)))))
-            scale[:] = previous[changed_axis] * ratios[changed_axis]
+            # A proportional resize must preserve the existing axis ratios.
+            # Replacing all axes with the changed axis value flattened any
+            # intentional non-uniform scale after the first resize.
+            scale = previous * ratios[changed_axis]
 
         self.transform.scale = scale
         self.transform.rotation_deg = np.degrees(np.asarray(angles, dtype=np.float64))

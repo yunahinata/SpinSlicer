@@ -161,6 +161,9 @@ jobs:
             - Set Russian as the default UI language.
             - Removed the parametric nut button from the Slicer tab.
             - Preserved internal bores and thread relief when slicing STL models.
+            - Moved printer and process settings to a dedicated Settings tab.
+            - Added a visible vat bottom plane to the 3D viewport.
+            - Replaced the static orientation marker with an interactive ViewCube.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

@@ -17,6 +17,8 @@ _language = "ru"
 # fallback or the public API.
 _EN: dict[str, str] = {
     "Настройки процесса": "Process settings",
+    "Настройки принтера и процесса": "Printer and process settings",
+    "Настройки": "Settings",
     "Печатная колба": "Print vat",
     "Диаметр колбы, мм": "Vat diameter, mm",
     "Параметры фотополимера": "Photopolymer parameters",
@@ -43,6 +45,7 @@ _EN: dict[str, str] = {
     "Граней:": "Faces:",
     "Исходные размеры:": "Original size:",
     "Трансформация": "Transform",
+    "Инструмент:": "Tool:",
     "Перемещение": "Move",
     "Вращение": "Rotate",
     "Масштаб": "Scale",
@@ -51,6 +54,10 @@ _EN: dict[str, str] = {
     "Тяни цветные стрелки, кольца или квадратные ручки прямо на модели.":
         "Drag the colored arrows, rings, or square handles directly on the model.",
     "Uniform Scale (сохранять пропорции)": "Uniform scale (keep proportions)",
+    "Пропорционально": "Keep proportions",
+    "Сохранять пропорции при масштабировании": "Keep proportions while scaling",
+    "Переместить модель в центр XY": "Move the model to the XY center",
+    "Вписать модель в текущий размер колбы": "Fit the model to the current vat size",
     "Поворот, °": "Rotation, °",
     "Позиция, мм": "Position, mm",
     "Сдвиг X": "Offset X",
@@ -114,6 +121,12 @@ _EN: dict[str, str] = {
     "Ошибка": "Error",
     "Внимание": "Warning",
     "Projection engine": "Projection engine",
+    "SpinSlicer internal Radon (recommended)":
+        "SpinSlicer internal Radon (recommended)",
+    "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)":
+        "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)",
+    "SpinSlicer internal Radon is the default engine. VAMToolbox is available only when explicitly selected.":
+        "SpinSlicer internal Radon is the default engine. VAMToolbox is available only when explicitly selected.",
     "Auto: VAMToolbox CAL → Radon fallback": "Auto: VAMToolbox CAL → Radon fallback",
     "Internal Radon": "Internal Radon",
     "VAMToolbox CAL (optional)": "VAMToolbox CAL (optional)",
@@ -130,6 +143,12 @@ _EN: dict[str, str] = {
 
 _RU: dict[str, str] = {
     "Projection engine": "Движок проекций",
+    "SpinSlicer internal Radon (recommended)":
+        "Внутренний Radon SpinSlicer (рекомендуется)",
+    "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)":
+        "Авто: VAMToolbox CAL → запасной SpinSlicer (экспериментально)",
+    "SpinSlicer internal Radon is the default engine. VAMToolbox is available only when explicitly selected.":
+        "Внутренний Radon SpinSlicer используется по умолчанию. VAMToolbox доступен только при явном выборе.",
     "Auto: VAMToolbox CAL → Radon fallback": "Авто: VAMToolbox CAL → запасной Radon",
     "Internal Radon": "Внутренний Radon",
     "VAMToolbox CAL (optional)": "VAMToolbox CAL (опционально)",

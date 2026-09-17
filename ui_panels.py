@@ -1,16 +1,16 @@
 """
 ui_panels.py
 ============
-Две боковые панели интерфейса:
+Виджеты настроек и управления моделью.
 
-  ProcessSettingsPanel (левая) — глобальные настройки принтера/процесса:
-    диаметр колбы, параметры фотополимера, разрешение сетки, кол-во кадров.
+  ProcessSettingsPanel — настройки принтера и процесса, вынесенные в
+    отдельную вкладку приложения.
+  TransformToolbar — компактное управление gizmo над 3D-вьюпортом.
+  ObjectPanel — прежняя расширенная панель объекта, оставленная для обратной
+    совместимости с внешними импортами.
 
-  ObjectPanel (правая) — параметры выбранной модели: точные размеры в мм,
-    Uniform Scale, поворот, сдвиг, кнопки центрирования/авто-фита/сброса.
-
-Обе панели ничего не знают про trimesh/PyVista напрямую — они лишь читают
-и пишут числа. Всю связь с ModelNode делает главное окно.
+Виджеты ничего не знают про PyVista напрямую — связь с ModelNode и сценой
+делает SlicerTab.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _scroll_wrap(inner: QWidget) -> QScrollArea:
 
 
 class ProcessSettingsPanel(QWidget):
-    """Левая панель: глобальные настройки принтера и процесса печати."""
+    """Настройки принтера и процесса печати для отдельной вкладки."""
 
     diameterChanged = pyqtSignal(float)
     settingsChanged = pyqtSignal()
@@ -67,7 +67,7 @@ class ProcessSettingsPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        title = QLabel("Настройки процесса")
+        title = QLabel("Настройки принтера и процесса")
         title.setObjectName("panelTitle")
         layout.addWidget(title)
 
@@ -157,8 +157,75 @@ class ProcessSettingsPanel(QWidget):
         return self.optimizer_iterations.value_int()
 
 
+class TransformToolbar(QWidget):
+    """Compact transform controls displayed above the 3D viewport."""
+
+    modeChanged = pyqtSignal(str)
+    centerRequested = pyqtSignal()
+    autoFitRequested = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("transformToolbar")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        tool_label = QLabel("Инструмент:")
+        tool_label.setObjectName("fieldLabel")
+        layout.addWidget(tool_label)
+
+        self.move_mode_btn = QPushButton("Перемещение")
+        self.rotate_mode_btn = QPushButton("Вращение")
+        self.scale_mode_btn = QPushButton("Масштаб")
+        self._mode_buttons = (
+            self.move_mode_btn,
+            self.rotate_mode_btn,
+            self.scale_mode_btn,
+        )
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        for index, button in enumerate(self._mode_buttons):
+            button.setCheckable(True)
+            button.setObjectName("transformModeButton")
+            self._mode_group.addButton(button, index)
+            layout.addWidget(button)
+        self.move_mode_btn.setChecked(True)
+
+        self.uniform_scale = QCheckBox("Пропорционально")
+        self.uniform_scale.setChecked(True)
+        self.uniform_scale.setToolTip("Сохранять пропорции при масштабировании")
+        layout.addWidget(self.uniform_scale)
+
+        layout.addStretch(1)
+
+        self.center_btn = QPushButton("Центрировать")
+        self.center_btn.setToolTip("Переместить модель в центр XY")
+        self.autofit_btn = QPushButton("Авто-фит под колбу")
+        self.autofit_btn.setToolTip("Вписать модель в текущий размер колбы")
+        layout.addWidget(self.center_btn)
+        layout.addWidget(self.autofit_btn)
+
+        self._wire_signals()
+        self.set_enabled_state(False)
+
+    def _wire_signals(self) -> None:
+        for button, mode in zip(self._mode_buttons, ("move", "rotate", "scale")):
+            button.clicked.connect(lambda _checked=False, m=mode: self.modeChanged.emit(m))
+        self.center_btn.clicked.connect(self.centerRequested.emit)
+        self.autofit_btn.clicked.connect(self.autoFitRequested.emit)
+
+    def is_uniform(self) -> bool:
+        return self.uniform_scale.isChecked()
+
+    def set_enabled_state(self, enabled: bool) -> None:
+        for widget in (*self._mode_buttons, self.uniform_scale, self.center_btn, self.autofit_btn):
+            widget.setEnabled(enabled)
+
+
 class ObjectPanel(QWidget):
-    """Правая панель: режим gizmo и краткие значения трансформации."""
+    """Legacy expanded object panel kept for API compatibility."""
 
     modeChanged = pyqtSignal(str)
     centerRequested = pyqtSignal()

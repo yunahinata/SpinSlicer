@@ -24,3 +24,13 @@ def test_viewport_matrix_can_keep_scale_uniform() -> None:
     node.set_matrix(matrix, uniform=True)
 
     assert np.allclose(node.transform.scale, [4.0, 4.0, 4.0])
+
+
+def test_uniform_matrix_resize_preserves_existing_axis_ratios() -> None:
+    node = ModelNode(trimesh.creation.box(extents=(10.0, 20.0, 30.0)))
+    node.transform.scale = np.array([2.0, 3.0, 4.0])
+    candidate = np.diag([2.5, 3.0, 4.0, 1.0])
+
+    node.set_matrix(candidate, uniform=True)
+
+    assert np.allclose(node.transform.scale, [2.5, 3.75, 5.0])

@@ -5,8 +5,8 @@ viewport.py
 
 Ключевые решения, отличающие его от прототипа на matplotlib:
 
-  • Оси, деления, сетка — полностью отключены. Единственный "интерьер" —
-    эстетичный градиентный фон.
+  • Оси, деления, сетка — полностью отключены. Внутри колбы отображается
+    отдельная круглая плоскость дна, а фон остаётся градиентным.
   • Колба — статичная полупрозрачная геометрия ФИКСИРОВАННОГО размера
     (задаётся только диаметром из настроек). Она никогда не пересчитывается
     из-за трансформаций модели.
@@ -26,6 +26,7 @@ from typing import Any, Optional, cast
 import numpy as np
 import pyvista as pv
 import trimesh
+import trimesh.transformations as tf
 import vtk
 from PyQt6.QtCore import QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
@@ -66,8 +67,117 @@ def _vtk_transform_to_numpy(transform: vtk.vtkTransform) -> np.ndarray:
     )
 
 
+def _transformed_bounds(
+    bounds: np.ndarray,
+    matrix: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the world-space AABB of a local-space bounding box."""
+
+    local_bounds = np.asarray(bounds, dtype=np.float64)
+    transform = np.asarray(matrix, dtype=np.float64)
+    if local_bounds.shape != (2, 3) or transform.shape != (4, 4):
+        raise ValueError("Expected bounds with shape (2, 3) and a 4x4 matrix.")
+    if not np.all(np.isfinite(local_bounds)) or not np.all(np.isfinite(transform)):
+        raise ValueError("Bounds and transform must contain only finite values.")
+
+    minimum, maximum = local_bounds
+    corners = np.array(
+        [
+            (x, y, z)
+            for x in (minimum[0], maximum[0])
+            for y in (minimum[1], maximum[1])
+            for z in (minimum[2], maximum[2])
+        ],
+        dtype=np.float64,
+    )
+    world = (transform[:3, :3] @ corners.T).T + transform[:3, 3]
+    return world.min(axis=0), world.max(axis=0)
+
+
+def _compose_trs(
+    scale: np.ndarray,
+    angles: np.ndarray,
+    translation: np.ndarray,
+) -> np.ndarray:
+    """Compose the transform format used by ``ModelNode``."""
+
+    angle_values = np.asarray(angles, dtype=np.float64)
+    result = tf.euler_matrix(
+        float(angle_values[0]),
+        float(angle_values[1]),
+        float(angle_values[2]),
+        axes="sxyz",
+    )
+    result[:3, :3] = result[:3, :3] @ np.diag(np.asarray(scale, dtype=np.float64))
+    result[:3, 3] = np.asarray(translation, dtype=np.float64)
+    return result
+
+
+def _scale_matrix_from_box(
+    candidate: np.ndarray,
+    baseline: np.ndarray,
+    uniform: bool,
+) -> np.ndarray:
+    """Convert a VTK box transform to a stable, shear-free model transform.
+
+    ``vtkBoxRepresentation`` returns a complete transform relative to the
+    original box.  Keeping its translation and rotation while extracting the
+    scale avoids feeding any transient shear into ``ModelNode``.  In uniform
+    mode the changed-axis ratio is applied to the complete existing scale,
+    preserving proportions even after a previous non-uniform resize.
+    """
+
+    candidate_array = np.asarray(candidate, dtype=np.float64)
+    baseline_array = np.asarray(baseline, dtype=np.float64)
+    if (
+        candidate_array.shape != (4, 4)
+        or baseline_array.shape != (4, 4)
+        or not np.all(np.isfinite(candidate_array))
+        or not np.all(np.isfinite(baseline_array))
+    ):
+        return baseline_array.copy()
+
+    try:
+        candidate_scale, _candidate_shear, candidate_angles, candidate_translation, _ = (
+            tf.decompose_matrix(candidate_array)
+        )
+        baseline_scale, _baseline_shear, _baseline_angles, _baseline_translation, _ = (
+            tf.decompose_matrix(baseline_array)
+        )
+    except (ValueError, np.linalg.LinAlgError):
+        return baseline_array.copy()
+
+    candidate_scale = np.asarray(candidate_scale, dtype=np.float64)
+    baseline_scale = np.asarray(baseline_scale, dtype=np.float64)
+    if (
+        candidate_scale.shape != (3,)
+        or baseline_scale.shape != (3,)
+        or np.any(candidate_scale <= 1e-9)
+        or np.any(baseline_scale <= 1e-9)
+        or not np.all(np.isfinite(candidate_scale))
+        or not np.all(np.isfinite(baseline_scale))
+    ):
+        return baseline_array.copy()
+
+    if uniform:
+        ratios = candidate_scale / baseline_scale
+        if np.any(ratios <= 1e-9) or not np.all(np.isfinite(ratios)):
+            return baseline_array.copy()
+        changed_axis = int(np.argmax(np.abs(np.log(ratios))))
+        factor = max(float(ratios[changed_axis]), 1e-4)
+        scale = baseline_scale * factor
+    else:
+        scale = candidate_scale
+
+    return _compose_trs(
+        scale,
+        np.asarray(candidate_angles, dtype=np.float64),
+        np.asarray(candidate_translation, dtype=np.float64),
+    )
+
+
 class Viewport3D(QWidget):
-    """Qt-виджет со сценой, gizmo трансформации и XYZ-кубом."""
+    """Qt-виджет со сценой, gizmo трансформации и навигационным ViewCube."""
 
     transformChanged = pyqtSignal(object)
 
@@ -94,6 +204,7 @@ class Viewport3D(QWidget):
             pass
 
         self._vat_actor: Any = None
+        self._bottom_plane_actor: Any = None
         self._model_actor: Any = None
         self._affine_widget: Any = None
         self._scale_widget: Any = None
@@ -104,53 +215,68 @@ class Viewport3D(QWidget):
         self._transform_mode = "move"
         self._uniform_scale = True
         self._current_diameter = 0.0
+        self._model_bounds: np.ndarray | None = None
         self._matrix_animation: QVariantAnimation | None = None
         self._affine_capture_pending = False
         self._pending_affine_start: np.ndarray | None = None
+        self._scale_interaction_start_matrix: np.ndarray | None = None
 
         self._create_orientation_cube(plotter)
 
         self._reset_camera_view()
 
     def _create_orientation_cube(self, plotter: Any) -> None:
-        """Create a compact, clearly labelled XYZ orientation marker."""
+        """Create a Fusion-style interactive camera orientation cube."""
+        camera_widget: Any = None
         try:
-            cube = vtk.vtkAnnotatedCubeActor()
-            cube.SetXPlusFaceText("X")
-            cube.SetXMinusFaceText("-X")
-            cube.SetYPlusFaceText("Y")
-            cube.SetYMinusFaceText("-Y")
-            cube.SetZPlusFaceText("Z")
-            cube.SetZMinusFaceText("-Z")
-            cube.SetFaceTextScale(0.34)
-            cube.SetFaceTextVisibility(True)
-            cube.SetTextEdgesVisibility(True)
-            cube.SetCubeVisibility(True)
-            cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
-            cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
-
-            face_colors = (
-                (cube.GetXPlusFaceProperty(), (0.92, 0.28, 0.25)),
-                (cube.GetXMinusFaceProperty(), (0.55, 0.12, 0.12)),
-                (cube.GetYPlusFaceProperty(), (0.25, 0.72, 0.38)),
-                (cube.GetYMinusFaceProperty(), (0.12, 0.42, 0.21)),
-                (cube.GetZPlusFaceProperty(), (0.28, 0.48, 0.92)),
-                (cube.GetZMinusFaceProperty(), (0.14, 0.26, 0.58)),
+            camera_widget = plotter.add_camera_orientation_widget(
+                animate=True,
+                n_frames=20,
             )
-            for prop, color in face_colors:
-                prop.SetColor(*color)
-                prop.SetOpacity(0.96)
+            representation = camera_widget.GetRepresentation()
+            representation.SetXPlusLabelText("RIGHT")
+            representation.SetXMinusLabelText("LEFT")
+            representation.SetYPlusLabelText("FRONT")
+            representation.SetYMinusLabelText("BACK")
+            representation.SetZPlusLabelText("TOP")
+            representation.SetZMinusLabelText("BOTTOM")
+            representation.SetSize(132, 132)
+            representation.SetPadding(8, 8)
+            representation.Modified()
 
-            self._orientation_cube = cube
-            self._orientation_widget = plotter.add_orientation_widget(
-                cube,
-                interactive=False,
-                viewport=(0.82, 0.04, 0.98, 0.22),
-            )
+            self._orientation_cube = representation
+            self._orientation_widget = camera_widget
         except Exception:
-            # Keep the scene usable with older VTK builds lacking the marker.
-            self._orientation_cube = None
-            self._orientation_widget = None
+            # Keep the scene usable with older VTK builds lacking the camera
+            # widget. The fallback is visual-only, but still shows orientation.
+            if camera_widget is not None:
+                try:
+                    camera_widget.Off()
+                except Exception:
+                    pass
+            try:
+                cube = vtk.vtkAnnotatedCubeActor()
+                cube.SetXPlusFaceText("RIGHT")
+                cube.SetXMinusFaceText("LEFT")
+                cube.SetYPlusFaceText("FRONT")
+                cube.SetYMinusFaceText("BACK")
+                cube.SetZPlusFaceText("TOP")
+                cube.SetZMinusFaceText("BOTTOM")
+                cube.SetFaceTextScale(0.28)
+                cube.SetFaceTextVisibility(True)
+                cube.SetTextEdgesVisibility(True)
+                cube.SetCubeVisibility(True)
+                cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
+                cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
+                self._orientation_cube = cube
+                self._orientation_widget = plotter.add_orientation_widget(
+                    cube,
+                    interactive=False,
+                    viewport=(0.80, 0.03, 0.98, 0.24),
+                )
+            except Exception:
+                self._orientation_cube = None
+                self._orientation_widget = None
 
     # --- камера --------------------------------------------------------------
     def _reset_camera_view(self) -> None:
@@ -179,10 +305,33 @@ class Viewport3D(QWidget):
 
         if self._vat_actor is not None:
             self.plotter.remove_actor(self._vat_actor, render=False)
+        if self._bottom_plane_actor is not None:
+            self.plotter.remove_actor(self._bottom_plane_actor, render=False)
+
+        bottom_z = -height / 2.0 + max(height * 1e-4, 1e-3)
+        bottom_plane = pv.Disc(
+            center=(0.0, 0.0, bottom_z),
+            inner=0.0,
+            outer=radius,
+            normal=(0.0, 0.0, 1.0),
+            r_res=1,
+            c_res=VAT_RESOLUTION,
+        )
 
         self._vat_actor = self.plotter.add_mesh(
             cylinder, color=VAT_COLOR, opacity=0.15, smooth_shading=True,
             specular=0.7, specular_power=20, name="vat", pickable=False, render=False,
+        )
+        self._bottom_plane_actor = self.plotter.add_mesh(
+            bottom_plane,
+            color="#5d91ef",
+            opacity=0.30,
+            show_edges=True,
+            edge_color="#8fb4ff",
+            line_width=1.5,
+            name="vat-bottom",
+            pickable=False,
+            render=False,
         )
         self.plotter.render()
 
@@ -190,6 +339,7 @@ class Viewport3D(QWidget):
     def set_model(self, mesh: trimesh.Trimesh) -> None:
         """Вызывается один раз на новый загруженный файл (не на каждую правку)."""
         self._remove_transform_widgets()
+        self._model_bounds = np.asarray(mesh.bounds, dtype=np.float64).copy()
         pv_mesh = _trimesh_to_pyvista(mesh)
 
         display_mesh = pv_mesh
@@ -239,6 +389,7 @@ class Viewport3D(QWidget):
 
     def clear_model(self) -> None:
         self._remove_transform_widgets()
+        self._model_bounds = None
         if self._model_actor is not None:
             self.plotter.remove_actor(self._model_actor, render=False)
             self._model_actor = None
@@ -260,6 +411,7 @@ class Viewport3D(QWidget):
             interact_callback=self._on_affine_interact,
             release_callback=self._on_affine_release,
         )
+        self._update_affine_gizmo(np.eye(4, dtype=np.float64))
 
         # vtkBoxWidget2 + vtkBoxRepresentation дают шесть квадратных ручек
         # масштаба без устаревшего vtkBoxWidget. Поворот и перемещение самого
@@ -292,6 +444,7 @@ class Viewport3D(QWidget):
         scale_widget.SetTranslationEnabled(False)
         scale_widget.SetScalingEnabled(True)
         scale_widget.SetMoveFacesEnabled(True)
+        scale_widget.AddObserver(vtk.vtkCommand.StartInteractionEvent, self._on_scale_start)
         scale_widget.AddObserver(vtk.vtkCommand.InteractionEvent, self._on_scale_interaction)
         scale_widget.AddObserver(vtk.vtkCommand.EndInteractionEvent, self._on_scale_release)
         scale_widget.Off()
@@ -311,6 +464,7 @@ class Viewport3D(QWidget):
             self._scale_widget.RemoveAllObservers()
             self._scale_widget = None
         self._scale_representation = None
+        self._scale_interaction_start_matrix = None
 
     def set_uniform_scale(self, enabled: bool) -> None:
         self._uniform_scale = bool(enabled)
@@ -376,25 +530,79 @@ class Viewport3D(QWidget):
         self._scale_representation.GetTransform(transform)
         return _vtk_transform_to_numpy(transform)
 
-    def _on_scale_interaction(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
-        matrix = self._scale_widget_matrix()
-        if matrix is None or self._model_actor is None:
+    def _on_scale_start(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
+        if self._model_actor is None or self._model_actor.user_matrix is None:
             return
+        self._scale_interaction_start_matrix = np.asarray(
+            self._model_actor.user_matrix,
+            dtype=np.float64,
+        ).copy()
+
+    def _scale_matrix_for_interaction(self, matrix: np.ndarray) -> np.ndarray:
+        if self._model_actor is None or self._model_actor.user_matrix is None:
+            return np.asarray(matrix, dtype=np.float64).copy()
+        baseline = self._scale_interaction_start_matrix
+        if baseline is None:
+            baseline = np.asarray(self._model_actor.user_matrix, dtype=np.float64).copy()
+        return _scale_matrix_from_box(matrix, baseline, self._uniform_scale)
+
+    def _on_scale_interaction(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
+        raw_matrix = self._scale_widget_matrix()
+        if raw_matrix is None or self._model_actor is None:
+            return
+        if self._scale_interaction_start_matrix is None:
+            self._on_scale_start(_widget, _event)
+        matrix = self._scale_matrix_for_interaction(raw_matrix)
         current = np.asarray(self._model_actor.user_matrix, dtype=np.float64).copy()
         self._animate_actor_matrix(current, matrix, duration=60)
 
     def _on_scale_release(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
-        matrix = self._scale_widget_matrix()
-        if matrix is not None:
+        raw_matrix = self._scale_widget_matrix()
+        if raw_matrix is not None:
+            matrix = self._scale_matrix_for_interaction(raw_matrix)
             self._stop_matrix_animation()
             self._set_actor_matrix(matrix)
+            self._scale_interaction_start_matrix = None
             self._emit_transform_changed(matrix)
+        else:
+            self._scale_interaction_start_matrix = None
 
     def _set_actor_matrix(self, matrix: np.ndarray) -> None:
         if self._model_actor is None:
             return
-        self._model_actor.user_matrix = np.asarray(matrix, dtype=np.float64).copy()
+        normalized = np.asarray(matrix, dtype=np.float64).copy()
+        if normalized.shape != (4, 4) or not np.all(np.isfinite(normalized)):
+            return
+        self._model_actor.user_matrix = normalized
+        self._update_affine_gizmo(normalized)
         self.plotter.render()
+
+    def _update_affine_gizmo(self, matrix: np.ndarray) -> None:
+        """Keep move arrows and rotation rings proportional to the model."""
+
+        if self._affine_widget is None or self._model_bounds is None:
+            return
+        try:
+            world_min, world_max = _transformed_bounds(self._model_bounds, matrix)
+        except ValueError:
+            return
+
+        base_extents = self._model_bounds[1] - self._model_bounds[0]
+        base_length = float(np.linalg.norm(base_extents))
+        world_length = float(np.linalg.norm(world_max - world_min))
+        if base_length <= 1e-9 or world_length <= 1e-9:
+            return
+
+        origin = (world_min + world_max) / 2.0
+        size_ratio = world_length / base_length
+        self._affine_widget._actor_length = world_length
+        self._affine_widget.origin = tuple(float(value) for value in origin)
+
+        gizmo_matrix = np.eye(4, dtype=np.float64)
+        gizmo_matrix[:3, :3] *= size_ratio
+        gizmo_matrix[:3, 3] = origin
+        for actor in (*self._affine_widget._arrows, *self._affine_widget._circles):
+            actor.user_matrix = gizmo_matrix.copy()
 
     def _stop_matrix_animation(self) -> None:
         if self._matrix_animation is not None:
