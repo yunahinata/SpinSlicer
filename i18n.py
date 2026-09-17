@@ -2,7 +2,7 @@
 
 The original prototype was written in Russian.  Russian remains the source
 text so existing log messages and saved workflows stay readable; the default
-application language is now English and this module translates the static Qt
+application language is now Russian and this module translates the static Qt
 surface without requiring a Qt Linguist build step.
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 LANGUAGES = {"en": "English", "ru": "Русский"}
-_language = "en"
+_language = "ru"
 
 # Exact source-string translations.  Keys are deliberately the existing
 # Russian UI strings so applying the English layer does not alter the Russian
@@ -125,7 +125,6 @@ _EN: dict[str, str] = {
     "Перезапустите приложение, чтобы применить язык.":
         "Restart the application to apply the selected language.",
     "Язык изменён": "Language changed",
-    "⚙ Create threaded nut": "⚙ Create threaded nut",
     "Parametric threaded nut": "Parametric threaded nut",
 }
 
@@ -141,7 +140,6 @@ _RU: dict[str, str] = {
         "внутренний Radon-проектор.",
     "Preserve internal voids (bores / threads)":
         "Сохранять внутренние пустоты (отверстия / резьба)",
-    "⚙ Create threaded nut": "⚙ Создать гайку с резьбой",
     "Generate a parametric nut with a helical internal thread":
         "Создать параметрическую гайку с винтовой внутренней резьбой",
     "Generate a watertight nut with a helical internal thread. "

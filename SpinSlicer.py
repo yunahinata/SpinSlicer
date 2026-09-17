@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -48,6 +50,18 @@ from job_controller import JobController
 from simulator_tab import SimulatorTab
 from slicer_tab import SlicerTab
 from video_tab import ProjectorTab
+
+
+def resource_path(relative_path: str) -> str:
+    """Resolve a bundled resource both from source and a PyInstaller build."""
+
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    root = Path(bundle_root) if isinstance(bundle_root, str) else Path(__file__).resolve().parent
+    return str(root / relative_path)
+
+
+APP_ICON_PATH = resource_path("assets/spinslicer.svg")
+
 
 EXTRA_QSS = f"""
 QGroupBox {{
@@ -145,6 +159,7 @@ class CALSlicerMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        self.setWindowIcon(QIcon(APP_ICON_PATH))
         self._settings = QSettings(APP_ORG, APP_TITLE)
         self._job_controller = JobController()
 
@@ -269,9 +284,10 @@ class CALSlicerMainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    app.setWindowIcon(QIcon(APP_ICON_PATH))
 
     settings = QSettings(APP_ORG, APP_TITLE)
-    saved_language = settings.value("language", "en")
+    saved_language = settings.value("language", "ru")
     if isinstance(saved_language, str) and saved_language in LANGUAGES:
         set_language(saved_language)
 

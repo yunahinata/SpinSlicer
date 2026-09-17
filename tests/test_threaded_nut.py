@@ -50,6 +50,20 @@ def test_vam_sinogram_layout_is_normalized() -> None:
     assert normalized.shape == (5, 8, 12)
 
 
+def test_slice_params_preserve_internal_voids_by_default() -> None:
+    params = SliceParams(
+        diameter_mm=60.0,
+        grid_res=16,
+        output_res=24,
+        num_frames=4,
+        fill_holes=True,
+        resin=ResinSettings(),
+        output_dir="output_frames",
+    )
+
+    assert params.preserve_internal_voids is True
+
+
 def test_threaded_nut_pipeline_records_void_preservation(tmp_path) -> None:
     params = SliceParams(
         diameter_mm=60.0,
@@ -59,7 +73,6 @@ def test_threaded_nut_pipeline_records_void_preservation(tmp_path) -> None:
         fill_holes=True,
         resin=ResinSettings(),
         output_dir=str(tmp_path / "frames"),
-        preserve_internal_voids=True,
     )
     _, out_dir = SlicingEngine.run(
         create_threaded_nut(

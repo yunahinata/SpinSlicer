@@ -60,6 +60,7 @@ jobs:
             --collect-all pyvistaqt `
             --collect-all vtkmodules `
             --hidden-import vtkmodules.qt.QVTKRenderWindowInteractor `
+            --add-data "assets/spinslicer.svg;assets" `
             --add-binary "$vcruntime140;." `
             --add-binary "$vcruntime140_1;." `
             SpinSlicer.py
@@ -79,6 +80,7 @@ jobs:
           --collect-all pyvistaqt
           --collect-all vtkmodules
           --hidden-import vtkmodules.qt.QVTKRenderWindowInteractor
+          --add-data assets/spinslicer.svg:assets
           SpinSlicer.py
 
       - name: Install Linux packaging tools
@@ -151,47 +153,14 @@ jobs:
           files: release-assets/*
           name: SpinSlicer ${{ github.ref_name }}
           body: |
-            ## ✨ SpinSlicer ${{ github.ref_name }}
+            ## SpinSlicer ${{ github.ref_name }}
 
-            A pre-alpha desktop workspace for tomographic volumetric additive manufacturing (VAM).
+            ### Changelog
 
-            > ⚠️ **Experimental build.** This release is intended for local research and UI/algorithm testing. It does not control a real projector, resin vat, or rotation stage.
-
-            ### What is included
-
-            - 🧊 STL loading, transforms, and a PyVista/VTK 3D viewport
-            - 🎛️ Direct 3D gizmo with movement arrows, rotation rings, scale handles, and an XYZ orientation cube
-            - ✨ Eased transform animation for smoother move, rotate, and scale interactions
-            - 🌀 Deterministic projection generation with the internal Radon backend
-            - 🧵 Parametric threaded-nut model for repeatable experiments
-            - 🎞️ Frame playback, MP4 export, and filtered-back-projection preview
-            - ✅ Validated manifests and an offline virtual-printer simulation path
-            - 🛠️ Windows package includes the NumPy-compatible VC++ runtime and current PyInstaller hooks
-
-            ### Downloads
-
-            Choose the package for your platform from the files below:
-
-            | Platform | Recommended file |
-            | --- | --- |
-            | Windows 10/11 x64 | `SpinSlicer.exe` or the Windows `.zip` |
-            | Debian/Ubuntu x64 | `.deb` |
-            | Fedora/RHEL x64 | `.rpm` |
-            | Other Linux x64 | Portable `.tar.gz` |
-
-            **Windows:** download `SpinSlicer.exe` and launch it directly. The VC++ runtime needed by NumPy is bundled in this build.
-
-            **Debian/Ubuntu:** `sudo apt install ./SpinSlicer-*.deb`
-
-            **Fedora/RHEL:** `sudo dnf install ./SpinSlicer-*.rpm`
-
-            ### Known limitations
-
-            - Hardware output and automatic exposure feedback are not implemented.
-            - Linux packages target x86_64.
-            - Pre-alpha builds may change file formats and UI behaviour.
-
-            📚 [Read the full README](https://github.com/yunahinata/SpinSlicer#readme) · 🐛 [Report an issue](https://github.com/yunahinata/SpinSlicer/issues/new)
-          generate_release_notes: true
+            - Added a SpinSlicer application icon to the desktop UI and packages.
+            - Set Russian as the default UI language.
+            - Removed the parametric nut button from the Slicer tab.
+            - Preserved internal bores and thread relief when slicing STL models.
+          generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

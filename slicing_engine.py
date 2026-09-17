@@ -12,7 +12,8 @@ trimesh.Trimesh и параметры, а сообщает о прогрессе
     на "грязных" STL.
   • Растеризация сечений через PIL.ImageDraw (полигоны + "рваные" линии
     сущностей — двойная защита от дыр в геометрии).
-  • Опциональный ремонт сетки через binary_closing / binary_fill_holes.
+  • Опциональный ремонт сетки через binary_closing, с сохранением внутренних
+    пустот (отверстий и резьбы) по умолчанию.
   • Векторизованный расчёт проекций через skimage.transform.radon.
 
 Логика НЕ менялась — переписан только способ сообщать о прогрессе
@@ -116,7 +117,9 @@ class SliceParams:
     output_dir: str
     projection_backend: str = "internal"
     optimizer_iterations: int = 8
-    preserve_internal_voids: bool = False
+    # A valid nut is defined by its cavity. Keep internal voids by default so
+    # every imported threaded STL follows the same path as any other model.
+    preserve_internal_voids: bool = True
     frame_rate_hz: float = DEFAULT_FRAME_RATE_HZ
     angle_offset_deg: float = DEFAULT_ANGLE_OFFSET_DEG
     angle_direction: int = 1

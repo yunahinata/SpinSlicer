@@ -108,7 +108,9 @@ class ProcessSettingsPanel(QWidget):
         self.preserve_internal_voids = QCheckBox(
             "Preserve internal voids (bores / threads)"
         )
-        self.preserve_internal_voids.setChecked(False)
+        # Threaded STL models need their bore and thread relief to survive
+        # rasterization; keep the safe behavior enabled for every model.
+        self.preserve_internal_voids.setChecked(True)
         grid_layout.addWidget(self.preserve_internal_voids)
         layout.addWidget(grid_box)
 

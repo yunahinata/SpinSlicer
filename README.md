@@ -1,4 +1,12 @@
-# SpinSlicer
+<p align="center">
+  <img src="assets/spinslicer.svg" alt="SpinSlicer" width="160">
+</p>
+
+<h1 align="center">SpinSlicer</h1>
+
+<p align="center">
+  Local software for tomographic volumetric additive manufacturing (VAM).
+</p>
 
 SpinSlicer is a local research prototype for tomographic volumetric additive
 manufacturing (VAM). It combines a PyQt6 desktop interface, a PyVista/VTK
@@ -8,10 +16,6 @@ reconstruction preview.
 The application is intentionally a simulation and projection-preparation tool:
 it does not drive a real projector, resin vat, or rotation stage.
 
-## Preview
-
-![SpinSlicer release preview](docs/orig.webp)
-
 ## Features
 
 - Load and transform STL models in physical millimetres.
@@ -19,9 +23,7 @@ it does not drive a real projector, resin vat, or rotation stage.
   backend, which is the default engine.
 - Optionally use the external VAMToolbox CAL optimizer when it is installed;
   it is never selected automatically by the default UI mode.
-- Create a parametric threaded nut without an STL file. The generator builds a
-  watertight ring with a helical triangular internal thread, radial clearance,
-  configurable pitch, and configurable sampling density.
+- Preserve internal bores and thread relief in loaded STL models by default.
 - Preview generated frames as a rotating video and export them to MP4.
 - Reconstruct an approximate 3D volume with filtered back-projection (FBP).
 - Keep every completed run in its own directory with validated metadata and a
@@ -29,7 +31,7 @@ it does not drive a real projector, resin vat, or rotation stage.
 - Store provisional machine/resin profiles and a deterministic frame schedule
   in every completed manifest; the schedule can be replayed by the offline
   virtual printer before hardware exists.
-- English is the default UI language. Russian remains available from the
+- Russian is the default UI language. English remains available from the
   language selector and is stored with the application settings.
 
 ## Installation
@@ -55,27 +57,13 @@ Run the application with:
 python SpinSlicer.py
 ```
 
-## Threaded nut / donut printing
+## Threaded STL models
 
-Use **Create threaded nut** on the Slicer tab. The dialog exposes:
-
-- outer diameter and nut height;
-- maximum threaded-bore diameter;
-- thread pitch and radial thread depth;
-- radial clearance for a mating part;
-- angular and axial sampling density.
-
-The generated mesh is centered and fitted to the current cylindrical vat just
-like a loaded STL. It is recorded in `manifest.json` as a parametric
-`threaded_nut` model, including all generator parameters. The thread is a
-geometrical approximation for volumetric printing experiments; it should be
-validated against the intended resin, optical resolution, shrinkage, and
-post-cure process before being used as a functional mechanical nut.
-
-For a first print, keep the pitch and thread depth several voxels wide. A
-useful rule of thumb is at least 2–3 voxels across the thread depth and a pitch
-larger than one voxel. At high resolution, use the VAMToolbox CAL backend to
-optimize dose outside the target and improve small positive/negative features.
+Load the nut as a regular STL through **Load STL**. Internal bores and thread
+relief are preserved by default during section rasterization, including when
+the mesh-repair option is enabled. Keep the thread pitch and depth several
+voxels wide at the selected grid resolution; very small features cannot be
+represented reliably by any voxel-based projector.
 
 ## Projection backends
 
@@ -121,9 +109,10 @@ player or simulator can consume a run. Legacy flat folders containing
 | File | Purpose |
 | --- | --- |
 | `SpinSlicer.py` | Main window, language selector, shared status bar, and log. |
-| `slicer_tab.py` | STL/parametric-model workflow and projection generation UI. |
-| `nut_dialog.py` | Threaded-nut parameter dialog. |
-| `threaded_nut.py` | Watertight helical internal-thread mesh generator. |
+| `assets/spinslicer.svg` | Application icon used by the desktop UI and packages. |
+| `slicer_tab.py` | STL loading, transformation, and projection generation UI. |
+| `nut_dialog.py` | Legacy threaded-nut dialog kept for API compatibility. |
+| `threaded_nut.py` | Legacy parametric nut generator kept for API compatibility. |
 | `ui_panels.py` | Process settings and model transform panels. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |

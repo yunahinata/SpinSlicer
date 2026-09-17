@@ -34,13 +34,18 @@ Comment=Projection and reconstruction tool for volumetric printing
 Exec=spinslicer
 Terminal=false
 Categories=Science;Graphics;
+Icon=spinslicer
 StartupWMClass=SpinSlicer
 EOF
 
 DEB_ROOT="$WORK_DIR/deb-root"
-mkdir -p "$DEB_ROOT/DEBIAN" "$DEB_ROOT/usr/bin" "$DEB_ROOT/usr/share/applications"
+mkdir -p "$DEB_ROOT/DEBIAN" "$DEB_ROOT/usr/bin" \
+    "$DEB_ROOT/usr/share/applications" \
+    "$DEB_ROOT/usr/share/icons/hicolor/scalable/apps"
 install -m 0755 "$BINARY" "$DEB_ROOT/usr/bin/spinslicer"
 install -m 0644 "$DESKTOP_FILE" "$DEB_ROOT/usr/share/applications/spinslicer.desktop"
+install -m 0644 assets/spinslicer.svg \
+    "$DEB_ROOT/usr/share/icons/hicolor/scalable/apps/spinslicer.svg"
 cat > "$DEB_ROOT/DEBIAN/control" <<EOF
 Package: spinslicer
 Version: ${DEB_VERSION}
@@ -60,6 +65,7 @@ RPM_TOP="$WORK_DIR/rpm"
 mkdir -p "$RPM_TOP"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 install -m 0755 "$BINARY" "$RPM_TOP/SOURCES/spinslicer"
 install -m 0644 "$DESKTOP_FILE" "$RPM_TOP/SOURCES/spinslicer.desktop"
+install -m 0644 assets/spinslicer.svg "$RPM_TOP/SOURCES/spinslicer.svg"
 cat > "$RPM_TOP/SPECS/spinslicer.spec" <<EOF
 Name:           spinslicer
 Version:        ${RPM_VERSION}
@@ -87,10 +93,13 @@ install -D -m 0755 %{_sourcedir}/spinslicer \
     %{buildroot}%{_bindir}/spinslicer
 install -D -m 0644 %{_sourcedir}/spinslicer.desktop \
     %{buildroot}%{_datadir}/applications/spinslicer.desktop
+install -D -m 0644 %{_sourcedir}/spinslicer.svg \
+    %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/spinslicer.svg
 
 %files
 %{_bindir}/spinslicer
 %{_datadir}/applications/spinslicer.desktop
+%{_datadir}/icons/hicolor/scalable/apps/spinslicer.svg
 EOF
 rpmbuild -bb --define "_topdir $RPM_TOP" "$RPM_TOP/SPECS/spinslicer.spec"
 RPM_FILE="$(find "$RPM_TOP/RPMS" -type f -name '*.rpm' -print -quit)"
