@@ -6,7 +6,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from vam_backend import VAMToolboxUnavailable, optimize_sinograms
+from vam_backend import (
+    DEFAULT_VAM_ENV_NAME,
+    VAMToolboxUnavailable,
+    _subprocess_command,
+    build_vam_install_command,
+    build_vam_probe_command,
+    optimize_sinograms,
+)
 
 
 class _FakeTargetGeometry:
@@ -96,3 +103,34 @@ def test_vam_backend_wraps_native_import_failures(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(VAMToolboxUnavailable, match="could not be loaded"):
         optimize_sinograms(np.ones((4, 4, 2), dtype=np.float32), np.array([0.0]))
+
+
+def test_vam_conda_commands_use_the_official_channels() -> None:
+    install = build_vam_install_command("C:/Miniconda/Scripts/conda.bat")
+    probe = build_vam_probe_command("C:/Miniconda/Scripts/conda.bat")
+
+    assert install[:5] == [
+        "C:/Miniconda/Scripts/conda.bat",
+        "create",
+        "--yes",
+        "--name",
+        DEFAULT_VAM_ENV_NAME,
+    ]
+    assert "python=3.12" not in install
+    assert install[-6:] == [
+        "vamtoolbox",
+        "-c",
+        "vamtoolbox",
+        "-c",
+        "conda-forge",
+        "-c",
+        "astra-toolbox",
+    ][-6:]
+    assert probe[1:5] == ["run", "--no-capture-output", "--name", DEFAULT_VAM_ENV_NAME]
+
+
+def test_vam_windows_batch_command_is_wrapped_for_subprocess() -> None:
+    command = _subprocess_command(["C:/Miniconda/Scripts/conda.bat", "--version"])
+
+    assert command[:3] == ["cmd.exe", "/d", "/s"]
+    assert command[-1].endswith("conda.bat --version")

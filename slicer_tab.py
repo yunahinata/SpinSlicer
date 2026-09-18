@@ -6,8 +6,8 @@ slicer_tab.py
 
 Логика идентична прежней главной версии окна — она просто перенесена
 внутрь QWidget, чтобы стать одной из вкладок QTabWidget. Локальные
-кнопки (загрузка/сброс/генерация/папка) остались тут же, наверху вкладки,
-а не в общем тулбаре — они осмысленны только в контексте этой вкладки.
+кнопки загрузки и генерации находятся тут же, наверху вкладки, а не в
+общем тулбаре — они осмысленны только в контексте этой вкладки.
 """
 from __future__ import annotations
 
@@ -39,7 +39,11 @@ from workers import GenerationWorker, LoadMeshWorker
 
 
 def open_local_directory(target: str) -> bool:
-    """Ask the native desktop shell to open a directory without a shell."""
+    """Open a directory through Qt's local-file URL handling.
+
+    The Slicer button was removed from the UI, but this safe helper remains a
+    small compatibility surface for integrations and security regression tests.
+    """
 
     return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(target)))
 
@@ -93,21 +97,11 @@ class SlicerTab(QWidget):
         self.load_btn.clicked.connect(self._on_load_clicked)
         toolbar.addWidget(self.load_btn)
 
-        self.reset_btn = QPushButton("↺ Сбросить")
-        self.reset_btn.setToolTip("Сбросить трансформацию и заново вписать модель в колбу")
-        self.reset_btn.clicked.connect(self._on_toolbar_reset)
-        toolbar.addWidget(self.reset_btn)
-
         self.generate_btn = QPushButton("▶ Сгенерировать проекции")
         self.generate_btn.setObjectName("generateButton")
         self.generate_btn.setToolTip("Запустить расчёт проекций в фоновом потоке")
         self.generate_btn.clicked.connect(self._on_generate_clicked)
         toolbar.addWidget(self.generate_btn)
-
-        self.open_dir_btn = QPushButton("📁 Открыть папку")
-        self.open_dir_btn.setToolTip("Открыть последнюю папку output_frames в проводнике")
-        self.open_dir_btn.clicked.connect(self._on_open_output_dir)
-        toolbar.addWidget(self.open_dir_btn)
         toolbar.addStretch(1)
         root.addLayout(toolbar)
 
@@ -122,6 +116,12 @@ class SlicerTab(QWidget):
         self._process_panel.diameterChanged.connect(self._on_diameter_changed)
         self._transform_toolbar.modeChanged.connect(self._on_transform_mode_changed)
         self._transform_toolbar.uniform_scale.toggled.connect(self._viewport.set_uniform_scale)
+        self._transform_toolbar.scale_controls.scalePercentChanged.connect(
+            self._on_scale_percent_changed
+        )
+        self._transform_toolbar.scale_controls.sizeChanged.connect(
+            self._on_scale_size_changed
+        )
         self._viewport.transformChanged.connect(self._on_viewport_transform_changed)
         self._transform_toolbar.centerRequested.connect(self._on_center)
         self._transform_toolbar.autoFitRequested.connect(self._on_autofit)
@@ -165,6 +165,7 @@ class SlicerTab(QWidget):
         self._viewport.update_vat(diameter)
         self._viewport.update_model_transform(node.matrix())
         self._viewport.reset_camera()
+        self._transform_toolbar.sync_from_model(node)
 
         self._transform_toolbar.set_enabled_state(True)
 
@@ -192,6 +193,36 @@ class SlicerTab(QWidget):
         node.set_matrix(matrix, uniform=self._transform_toolbar.is_uniform())
         self._sync_and_redraw()
 
+    def _on_scale_percent_changed(self, axis: int, value: float) -> None:
+        node = self._model_node
+        if node is None or axis not in (0, 1, 2):
+            return
+        scale = np.asarray(node.transform.scale, dtype=np.float64).copy()
+        target_scale = max(float(value) / 100.0, 1e-6)
+        if self._transform_toolbar.is_uniform():
+            current_axis_scale = max(float(scale[axis]), 1e-9)
+            scale *= target_scale / current_axis_scale
+        else:
+            scale[axis] = target_scale
+        node.transform.scale = scale
+        self._sync_and_redraw()
+
+    def _on_scale_size_changed(self, axis: int, value: float) -> None:
+        node = self._model_node
+        if node is None or axis not in (0, 1, 2):
+            return
+        current_size = np.asarray(node.current_size_mm(), dtype=np.float64)
+        base_extents = np.asarray(node.base_extents, dtype=np.float64)
+        scale = np.asarray(node.transform.scale, dtype=np.float64).copy()
+        target_size = max(float(value), 1e-6)
+        if self._transform_toolbar.is_uniform():
+            current_axis_size = max(float(current_size[axis]), 1e-9)
+            scale *= target_size / current_axis_size
+        else:
+            scale[axis] = target_size / max(float(base_extents[axis]), 1e-9)
+        node.transform.scale = np.maximum(scale, 1e-6)
+        self._sync_and_redraw()
+
     def _on_center(self) -> None:
         if self._model_node is None:
             return
@@ -212,23 +243,12 @@ class SlicerTab(QWidget):
             f"размер {size[0]:.2f} × {size[1]:.2f} × {size[2]:.2f} мм."
         )
 
-    def _on_toolbar_reset(self) -> None:
-        """Сброс + повторный авто-фит под колбу (кнопка в шапке вкладки)."""
-        if self._model_node is None:
-            return
-        self._model_node.reset()
-        diameter = self._process_panel.vat_diameter_mm()
-        self._model_node.fit_to_vat(
-            diameter, diameter * VAT_HEIGHT_RATIO, FILL_FRACTION,
-        )
-        self._sync_and_redraw()
-        self.logMessage.emit("Трансформация сброшена, модель заново вписана в колбу.")
-
     def _sync_and_redraw(self) -> None:
         node = self._model_node
         if node is None:
             return
         self._viewport.update_model_transform(node.matrix())
+        self._transform_toolbar.sync_from_model(node)
 
     # =======================================================================
     # Генерация проекций
@@ -269,6 +289,9 @@ class SlicerTab(QWidget):
             optimizer_iterations=self._process_panel.optimizer_iterations_value(),
             preserve_internal_voids=self._process_panel.preserve_internal_voids.isChecked(),
         )
+        vam_conda, vam_environment = self._process_panel.vam_runtime_config()
+        params.vam_conda_executable = vam_conda
+        params.vam_environment_name = vam_environment or params.vam_environment_name
 
         # Генерация всегда использует полностью трансформированную копию —
         # original_mesh внутри ModelNode остаётся нетронутым.
@@ -335,23 +358,6 @@ class SlicerTab(QWidget):
         self.generate_btn.setEnabled(True)
         self.generate_btn.setText("▶ Generate projections")
         self.load_btn.setEnabled(True)
-
-    # =======================================================================
-    # Открыть папку вывода
-    # =======================================================================
-    def _on_open_output_dir(self) -> None:
-        target = self._last_output_dir
-        if not target or not os.path.isdir(target):
-            QMessageBox.information(
-                self, "Information", "The output folder has not been created yet."
-            )
-            return
-        if not open_local_directory(target):
-            QMessageBox.warning(
-                self,
-                "Could not open folder",
-                "The operating system rejected the folder-open request.",
-            )
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
         if self._job_controller.shutdown():

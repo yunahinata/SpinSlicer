@@ -62,7 +62,11 @@ from validation import (
     validate_slice_parameters,
     validate_stl_path,
 )
-from vam_backend import VAMToolboxUnavailable, optimize_sinograms
+from vam_backend import (
+    DEFAULT_VAM_ENV_NAME,
+    VAMToolboxUnavailable,
+    optimize_sinograms,
+)
 
 ProgressCallback = Callable[[float, str], None]
 CancelCheck = Callable[[], bool]
@@ -117,6 +121,10 @@ class SliceParams:
     output_dir: str
     projection_backend: str = "internal"
     optimizer_iterations: int = 8
+    # Optional isolated Conda runtime for VAMToolbox.  The internal Radon
+    # backend never needs these values.
+    vam_conda_executable: str = ""
+    vam_environment_name: str = DEFAULT_VAM_ENV_NAME
     # A valid nut is defined by its cavity. Keep internal voids by default so
     # every imported threaded STL follows the same path as any other model.
     preserve_internal_voids: bool = True
@@ -358,6 +366,8 @@ class SlicingEngine:
                     slices,
                     angles,
                     iterations=params.optimizer_iterations,
+                    conda_executable=params.vam_conda_executable or None,
+                    environment_name=params.vam_environment_name or DEFAULT_VAM_ENV_NAME,
                 )
                 report(0.78, "VAMToolbox projection optimization complete.")
             except VAMToolboxUnavailable as exc:

@@ -5,8 +5,8 @@ viewport.py
 
 Ключевые решения, отличающие его от прототипа на matplotlib:
 
-  • Оси, деления, сетка — полностью отключены. Внутри колбы отображается
-    отдельная круглая плоскость дна, а фон остаётся градиентным.
+  • Оси и деления полностью отключены. Внутри колбы отображается условно
+    бесконечная квадратная CAD-сетка дна, а фон остаётся градиентным.
   • Колба — статичная полупрозрачная геометрия ФИКСИРОВАННОГО размера
     (задаётся только диаметром из настроек). Она никогда не пересчитывается
     из-за трансформаций модели.
@@ -226,60 +226,92 @@ class Viewport3D(QWidget):
         self._reset_camera_view()
 
     def _create_orientation_cube(self, plotter: Any) -> None:
-        """Create a Fusion-style interactive camera orientation cube."""
-        camera_widget: Any = None
-        try:
-            camera_widget = plotter.add_camera_orientation_widget(
-                animate=True,
-                n_frames=20,
-            )
-            representation = camera_widget.GetRepresentation()
-            representation.SetXPlusLabelText("RIGHT")
-            representation.SetXMinusLabelText("LEFT")
-            representation.SetYPlusLabelText("FRONT")
-            representation.SetYMinusLabelText("BACK")
-            representation.SetZPlusLabelText("TOP")
-            representation.SetZMinusLabelText("BOTTOM")
-            representation.SetSize(132, 132)
-            representation.SetPadding(8, 8)
-            representation.Modified()
+        """Create a real, draggable Fusion-style orientation cube."""
 
-            self._orientation_cube = representation
-            self._orientation_widget = camera_widget
+        try:
+            interactor = self._vtk_interactor(plotter)
+            if interactor is None:
+                raise RuntimeError("VTK interactor is unavailable")
+            cube = vtk.vtkAnnotatedCubeActor()
+            cube.SetXPlusFaceText("RIGHT")
+            cube.SetXMinusFaceText("LEFT")
+            cube.SetYPlusFaceText("FRONT")
+            cube.SetYMinusFaceText("BACK")
+            cube.SetZPlusFaceText("TOP")
+            cube.SetZMinusFaceText("BOTTOM")
+            cube.SetFaceTextScale(0.30)
+            cube.SetFaceTextVisibility(True)
+            cube.SetTextEdgesVisibility(True)
+            cube.SetCubeVisibility(True)
+            cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
+            cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
+            cube.GetXPlusFaceProperty().SetColor(0.18, 0.28, 0.44)
+            cube.GetXMinusFaceProperty().SetColor(0.18, 0.28, 0.44)
+            cube.GetYPlusFaceProperty().SetColor(0.18, 0.40, 0.28)
+            cube.GetYMinusFaceProperty().SetColor(0.18, 0.40, 0.28)
+            cube.GetZPlusFaceProperty().SetColor(0.45, 0.33, 0.16)
+            cube.GetZMinusFaceProperty().SetColor(0.45, 0.33, 0.16)
+
+            orientation_widget = vtk.vtkOrientationMarkerWidget()
+            orientation_widget.SetOrientationMarker(cube)
+            orientation_widget.SetInteractor(plotter.iren.interactor)
+            orientation_widget.SetViewport(0.79, 0.76, 0.98, 0.98)
+            orientation_widget.SetEnabled(1)
+            orientation_widget.SetInteractive(1)
+            self._orientation_cube = cube
+            self._orientation_widget = orientation_widget
         except Exception:
-            # Keep the scene usable with older VTK builds lacking the camera
-            # widget. The fallback is visual-only, but still shows orientation.
-            if camera_widget is not None:
-                try:
-                    camera_widget.Off()
-                except Exception:
-                    pass
+            # Keep the scene usable with older VTK builds lacking the marker
+            # widget. The fallback is the native PyVista orientation widget.
             try:
-                cube = vtk.vtkAnnotatedCubeActor()
-                cube.SetXPlusFaceText("RIGHT")
-                cube.SetXMinusFaceText("LEFT")
-                cube.SetYPlusFaceText("FRONT")
-                cube.SetYMinusFaceText("BACK")
-                cube.SetZPlusFaceText("TOP")
-                cube.SetZMinusFaceText("BOTTOM")
-                cube.SetFaceTextScale(0.28)
-                cube.SetFaceTextVisibility(True)
-                cube.SetTextEdgesVisibility(True)
-                cube.SetCubeVisibility(True)
-                cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
-                cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
-                self._orientation_cube = cube
-                self._orientation_widget = plotter.add_orientation_widget(
-                    cube,
-                    interactive=False,
-                    viewport=(0.80, 0.03, 0.98, 0.24),
+                camera_widget = plotter.add_camera_orientation_widget(
+                    animate=True,
+                    n_frames=20,
                 )
+                self._orientation_cube = camera_widget.GetRepresentation()
+                self._orientation_widget = camera_widget
             except Exception:
                 self._orientation_cube = None
                 self._orientation_widget = None
 
     # --- камера --------------------------------------------------------------
+    @staticmethod
+    def _vtk_interactor(plotter: Any) -> Any | None:
+        """Return VTK's event interactor, or ``None`` for off-screen renders."""
+
+        return getattr(getattr(plotter, "iren", None), "interactor", None)
+
+    def _camera_reset_bounds(self) -> tuple[float, float, float, float, float, float]:
+        """Return bounds for framing the vat/model, excluding the large grid."""
+
+        diameter = max(float(self._current_diameter), 20.0)
+        height = diameter * VAT_HEIGHT_RATIO
+        radius = diameter / 2.0
+        minimum = np.array([-radius, -radius, -height / 2.0], dtype=np.float64)
+        maximum = np.array([radius, radius, height / 2.0], dtype=np.float64)
+
+        if self._model_actor is not None and self._model_bounds is not None:
+            matrix = self._model_actor.user_matrix
+            if matrix is None:
+                matrix = np.eye(4, dtype=np.float64)
+            try:
+                model_min, model_max = _transformed_bounds(self._model_bounds, matrix)
+            except ValueError:
+                model_min, model_max = minimum, maximum
+            minimum = np.minimum(minimum, model_min)
+            maximum = np.maximum(maximum, model_max)
+
+        margin = max(diameter * 0.08, 1.0)
+        minimum -= margin
+        maximum += margin
+        return (
+            float(minimum[0]), float(maximum[0]),
+            float(minimum[1]), float(maximum[1]),
+            float(minimum[2]), float(maximum[2]),
+        )
+
     def _reset_camera_view(self) -> None:
+        self.plotter.reset_camera(bounds=self._camera_reset_bounds())
         self.plotter.camera_position = "iso"
         try:
             self.plotter.camera.azimuth += 25
@@ -289,7 +321,6 @@ class Viewport3D(QWidget):
         self.plotter.render()
 
     def reset_camera(self) -> None:
-        self.plotter.reset_camera()
         self._reset_camera_view()
 
     # --- колба (фиксированный размер, не зависит от модели) --------------------
@@ -309,13 +340,17 @@ class Viewport3D(QWidget):
             self.plotter.remove_actor(self._bottom_plane_actor, render=False)
 
         bottom_z = -height / 2.0 + max(height * 1e-4, 1e-3)
-        bottom_plane = pv.Disc(
+        # A large square grid gives the same spatial cue as a CAD workplane.
+        # It is intentionally much larger than the vat, while camera framing
+        # above uses explicit bounds so the grid does not make the model tiny.
+        grid_span = max(diameter_mm * 20.0, 1000.0)
+        bottom_plane = pv.Plane(
             center=(0.0, 0.0, bottom_z),
-            inner=0.0,
-            outer=radius,
-            normal=(0.0, 0.0, 1.0),
-            r_res=1,
-            c_res=VAT_RESOLUTION,
+            direction=(0.0, 0.0, 1.0),
+            i_size=grid_span,
+            j_size=grid_span,
+            i_resolution=64,
+            j_resolution=64,
         )
 
         self._vat_actor = self.plotter.add_mesh(
@@ -324,11 +359,11 @@ class Viewport3D(QWidget):
         )
         self._bottom_plane_actor = self.plotter.add_mesh(
             bottom_plane,
-            color="#5d91ef",
-            opacity=0.30,
+            color="#334b70",
+            opacity=0.24,
             show_edges=True,
-            edge_color="#8fb4ff",
-            line_width=1.5,
+            edge_color="#7190bd",
+            line_width=1.0,
             name="vat-bottom",
             pickable=False,
             render=False,
@@ -399,6 +434,14 @@ class Viewport3D(QWidget):
     def _create_transform_widgets(self, mesh: trimesh.Trimesh) -> None:
         if self._model_actor is None:
             return
+        if self._vtk_interactor(self.plotter) is None:
+            # Headless/off-screen rendering is used by CI and thumbnail
+            # generation. It can display the model but cannot receive VTK
+            # mouse events, so do not construct interactive widgets there.
+            self._affine_widget = None
+            self._scale_widget = None
+            self._scale_representation = None
+            return
 
         self._affine_widget = self.plotter.add_affine_transform_widget(
             self._model_actor,
@@ -411,11 +454,21 @@ class Viewport3D(QWidget):
             interact_callback=self._on_affine_interact,
             release_callback=self._on_affine_release,
         )
+        self._replace_rotation_rings()
         self._update_affine_gizmo(np.eye(4, dtype=np.float64))
 
         # vtkBoxWidget2 + vtkBoxRepresentation дают шесть квадратных ручек
         # масштаба без устаревшего vtkBoxWidget. Поворот и перемещение самого
         # бокса отключены: в режиме «Масштаб» меняется только размер модели.
+        interactor = self._vtk_interactor(self.plotter)
+        if interactor is None:
+            # PyVista's off-screen renderer has no VTK event interactor. The
+            # affine widget can still render for smoke tests, but box handles
+            # must wait for a real desktop renderer.
+            self._scale_widget = None
+            self._scale_representation = None
+            return
+
         scale_representation = vtk.vtkBoxRepresentation()
         scale_representation.SetPlaceFactor(1.08)
         # trimesh stores bounds as [[xmin, ymin, zmin], [xmax, ymax, zmax]],
@@ -428,7 +481,7 @@ class Viewport3D(QWidget):
         )
         scale_representation.PlaceWidget(bounds)
         scale_representation.SetTransform(_numpy_to_vtk_transform(np.eye(4, dtype=np.float64)))
-        scale_representation.SetHandleSize(0.018)
+        scale_representation.SetHandleSize(0.030)
         scale_representation.GetHandleProperty().SetColor(0.95, 0.76, 0.22)
         scale_representation.GetSelectedHandleProperty().SetColor(1.0, 0.92, 0.35)
         scale_representation.GetFaceProperty().SetOpacity(0.035)
@@ -437,7 +490,7 @@ class Viewport3D(QWidget):
         scale_representation.GetSelectedOutlineProperty().SetColor(1.0, 0.92, 0.35)
 
         scale_widget = vtk.vtkBoxWidget2()
-        scale_widget.SetInteractor(self.plotter.iren.interactor)
+        scale_widget.SetInteractor(interactor)
         scale_widget.SetCurrentRenderer(self.plotter.renderer)
         scale_widget.SetRepresentation(scale_representation)
         scale_widget.SetRotationEnabled(False)
@@ -450,6 +503,63 @@ class Viewport3D(QWidget):
         scale_widget.Off()
         self._scale_widget = scale_widget
         self._scale_representation = scale_representation
+
+    def _replace_rotation_rings(self) -> None:
+        """Use full Tinkercad-style rings instead of PyVista's quarter arcs."""
+
+        widget = self._affine_widget
+        actor = self._model_actor
+        if widget is None or actor is None:
+            return
+
+        old_circles = list(widget._circles)
+        created_rings: list[Any] = []
+        try:
+            for old_circle in old_circles:
+                self.plotter.remove_actor(old_circle, render=False)
+
+            model_length = float(actor.GetLength())
+            ring_radius = model_length * (0.18 * 1.6)
+            tube_radius = max(model_length * 0.18 * 0.025, 1e-4)
+            for axis, color in enumerate(("#ef6a63", "#62c370", "#5d91ef")):
+                ring = pv.Circle(resolution=96)
+                ring.faces = np.empty(0, dtype=np.int64)
+                ring.lines = np.hstack(
+                    (
+                        np.array([ring.n_points + 1], dtype=np.int64),
+                        np.arange(ring.n_points, dtype=np.int64),
+                        np.array([0], dtype=np.int64),
+                    )
+                )
+                if axis == 0:
+                    ring.rotate_y(-90, inplace=True)
+                elif axis == 1:
+                    ring.rotate_x(90, inplace=True)
+                ring.points *= ring_radius
+                ring_actor = self.plotter.add_mesh(
+                    ring.tube(
+                        radius=tube_radius,
+                        absolute=True,
+                        radius_factor=1.0,
+                    ),
+                    color=color,
+                    lighting=False,
+                    render_lines_as_tubes=True,
+                    render=False,
+                )
+                matrix = np.eye(4, dtype=np.float64)
+                matrix[:3, 3] = np.asarray(widget.origin, dtype=np.float64)
+                ring_actor.user_matrix = matrix
+                ring_actor.mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                ring_actor.mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(0, -20000)
+                created_rings.append(ring_actor)
+            widget._circles = created_rings
+        except Exception:
+            # The stock PyVista arcs are a safe fallback for older VTK/PyVista
+            # combinations where full-ring tube construction is unavailable.
+            for ring_actor in created_rings:
+                self.plotter.remove_actor(ring_actor, render=False)
+            widget._circles = old_circles
 
     def _remove_transform_widgets(self) -> None:
         self._stop_matrix_animation()
@@ -511,7 +621,9 @@ class Viewport3D(QWidget):
         self._pending_affine_start = None
         if start is None or start.shape != (4, 4) or not np.all(np.isfinite(start)):
             start = target.copy()
-        self._animate_actor_matrix(start, target, duration=80)
+        # CAD tools keep the rotation handle under the cursor.  Interpolating
+        # every mouse event adds visible lag, so drag gestures update directly.
+        self._set_actor_matrix(target)
 
     def _on_affine_release(self, matrix: np.ndarray) -> None:
         self._affine_capture_pending = False
@@ -553,8 +665,7 @@ class Viewport3D(QWidget):
         if self._scale_interaction_start_matrix is None:
             self._on_scale_start(_widget, _event)
         matrix = self._scale_matrix_for_interaction(raw_matrix)
-        current = np.asarray(self._model_actor.user_matrix, dtype=np.float64).copy()
-        self._animate_actor_matrix(current, matrix, duration=60)
+        self._set_actor_matrix(matrix)
 
     def _on_scale_release(self, _widget: vtk.vtkBoxWidget2, _event: str) -> None:
         raw_matrix = self._scale_widget_matrix()

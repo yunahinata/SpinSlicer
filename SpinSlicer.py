@@ -3,16 +3,14 @@
 Главное окно — тонкая оболочка над вкладками приложения:
 
   1. "🧊 Слайсер"         — генерация проекций (slicer_tab.SlicerTab).
-  2. "Настройки"          — параметры принтера и процесса.
-  3. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
+  2. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
                               (video_tab.ProjectorTab).
-  4. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
+  3. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
                               (simulator_tab.SimulatorTab).
+  4. "Настройки"          — параметры принтера, процесса и VAMToolbox.
 
-Статус-бар, прогресс-бар и лог — ОБЩИЕ для всего приложения и живут
-здесь, а не в каждой вкладке: так пользователь видит происходящее вне
-зависимости от того, какая вкладка сейчас активна (например, генерация
-на "Слайсере" продолжает идти, пока он смотрит "Проектор").
+Статус-бар и лог общие для всего приложения. Прогресс-бар показывается
+только на главной вкладке "Слайсер".
 
 
 """
@@ -209,14 +207,14 @@ class CALSlicerMainWindow(QMainWindow):
         self.simulator_tab = SimulatorTab(job_controller=self._job_controller)
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
-        self.tabs.addTab(self.settings_tab, "Настройки")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
         self.tabs.addTab(self.simulator_tab, "🔬 Симулятор")
+        self.tabs.addTab(self.settings_tab, "Настройки")
 
         self.tabs.setTabToolTip(0, "Настройка модели и генерация проекций")
-        self.tabs.setTabToolTip(1, "Настройки принтера и процесса печати")
-        self.tabs.setTabToolTip(2, "Проигрывание и экспорт готовых кадров в MP4")
-        self.tabs.setTabToolTip(3, "Обратная реконструкция геометрии по кадрам")
+        self.tabs.setTabToolTip(1, "Проигрывание и экспорт готовых кадров в MP4")
+        self.tabs.setTabToolTip(2, "Обратная реконструкция геометрии по кадрам")
+        self.tabs.setTabToolTip(3, "Настройки принтера, процесса и альтернативного движка")
 
         root.addWidget(self.tabs, 1)
 
@@ -253,6 +251,13 @@ class CALSlicerMainWindow(QMainWindow):
         self.slicer_tab.outputGenerated.connect(self.simulator_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self._on_output_generated)
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._on_tab_changed(self.tabs.currentIndex())
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Show the progress indicator only on the main Slicer tab."""
+
+        self._progress_bar.setVisible(index == self.tabs.indexOf(self.slicer_tab))
 
     def _on_language_changed(self, index: int) -> None:
         selected = self.language_combo.itemData(index)
@@ -267,7 +272,8 @@ class CALSlicerMainWindow(QMainWindow):
         # Мягкая подсказка: переключаем пользователя на следующий логичный
         # шаг, не мешая — если он уже сам открыл другую вкладку, не трогаем.
         if self.tabs.currentIndex() == 0:
-            self.tabs.setTabToolTip(2, f"Кадры готовы: {out_dir}")
+            projector_index = self.tabs.indexOf(self.projector_tab)
+            self.tabs.setTabToolTip(projector_index, f"Кадры готовы: {out_dir}")
 
     # =======================================================================
     # Статус / лог (общие для всех вкладок)
@@ -282,6 +288,7 @@ class CALSlicerMainWindow(QMainWindow):
         self._log_panel.appendPlainText(f"[{stamp}] {tr(message)}")
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
+        self.settings_tab.shutdown()
         if self._job_controller.shutdown():
             event.accept()
         else:

@@ -87,6 +87,13 @@ conda-based installation and has its own distribution terms. The default UI
 mode is the internal SpinSlicer projector; `Auto` is retained only as an
 experimental compatibility mode.
 
+On Windows, open **Settings → VAMToolbox — alternate engine** to create the
+isolated `spinslicer-vam` Conda environment and verify the installation. This
+does not modify SpinSlicer's own `.venv`. If Conda is not detected, install
+Miniconda or Anaconda first, then restart the application. The official
+installation details and platform limitations are documented in the
+[VAMToolbox getting-started guide](https://vamtoolbox.readthedocs.io/en/latest/_docs/gettingstarted.html).
+
 ## Output format
 
 Each completed generation creates a unique run directory:

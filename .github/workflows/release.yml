@@ -162,8 +162,10 @@ jobs:
             - Removed the parametric nut button from the Slicer tab.
             - Preserved internal bores and thread relief when slicing STL models.
             - Moved printer and process settings to a dedicated Settings tab.
-            - Added a visible vat bottom plane to the 3D viewport.
-            - Replaced the static orientation marker with an interactive ViewCube.
+            - Added a visible square CAD-style vat workplane and a real annotated orientation cube.
+            - Added full rotation rings and compact Fusion-style percentage/size scaling controls.
+            - Kept the progress indicator on the main Slicer tab and moved Settings to the end.
+            - Added an optional isolated Conda installer and runtime bridge for VAMToolbox CAL.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
