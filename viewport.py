@@ -28,8 +28,8 @@ import pyvista as pv
 import trimesh
 import trimesh.transformations as tf
 import vtk
-from PyQt6.QtCore import QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtCore import QEasingCurve, Qt, QTimer, QVariantAnimation, pyqtSignal
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from constants import (
@@ -40,6 +40,10 @@ from constants import (
     VAT_RESOLUTION,
     VIEWPORT_BG_BOTTOM,
     VIEWPORT_BG_TOP,
+    VIEWPORT_ORIENTATION_WIDGET_SIZE,
+    VIEWPORT_WORKPLANE_MIN_SPAN_MM,
+    VIEWPORT_WORKPLANE_RESOLUTION,
+    VIEWPORT_WORKPLANE_SPAN_RATIO,
 )
 
 
@@ -237,6 +241,7 @@ class Viewport3D(QWidget):
         self._scale_representation: Any = None
         self._orientation_cube: Any = None
         self._orientation_widget: Any = None
+        self._orientation_overlay: QWidget | None = None
         self._affine_enabled = False
         self._transform_mode = "move"
         self._uniform_scale = True
@@ -251,15 +256,12 @@ class Viewport3D(QWidget):
 
         self._install_navigation_style()
         self._create_orientation_cube(plotter)
+        self._create_orientation_overlay()
 
         self._reset_camera_view()
 
     def _create_orientation_cube(self, plotter: Any) -> None:
-        """Create a fixed Fusion-style orientation cube.
-
-        The marker is deliberately not interactive: it is a stable camera
-        indicator, not another draggable/scalable object in the scene.
-        """
+        """Create the compact, non-transformable CAD orientation cube."""
 
         try:
             interactor = self._vtk_interactor(plotter)
@@ -288,24 +290,72 @@ class Viewport3D(QWidget):
             orientation_widget = vtk.vtkOrientationMarkerWidget()
             orientation_widget.SetOrientationMarker(cube)
             orientation_widget.SetInteractor(plotter.iren.interactor)
-            orientation_widget.SetViewport(0.79, 0.76, 0.98, 0.98)
+            orientation_widget.SetViewport(0.02, 0.78, 0.16, 0.97)
             orientation_widget.SetEnabled(1)
             orientation_widget.SetInteractive(0)
             self._orientation_cube = cube
             self._orientation_widget = orientation_widget
         except Exception:
             # Keep the scene usable with older VTK builds lacking the marker
-            # widget. The fallback is the native PyVista orientation widget.
+            # widget. The native camera widget is the last-resort fallback.
             try:
                 camera_widget = plotter.add_camera_orientation_widget(
                     animate=True,
                     n_frames=20,
                 )
+                representation = camera_widget.GetRepresentation()
+                if representation is not None:
+                    representation.SetSize(
+                        VIEWPORT_ORIENTATION_WIDGET_SIZE,
+                        VIEWPORT_ORIENTATION_WIDGET_SIZE,
+                    )
+                    representation.AnchorToUpperLeft()
                 self._orientation_cube = camera_widget.GetRepresentation()
                 self._orientation_widget = camera_widget
             except Exception:
                 self._orientation_cube = None
                 self._orientation_widget = None
+
+    def _create_orientation_overlay(self) -> None:
+        """Add the small fixed Home/XYZ labels shown around the view cube."""
+
+        overlay = QWidget(self)
+        overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._orientation_overlay = overlay
+
+        def make_label(
+            text: str,
+            color: str,
+            geometry: tuple[int, int, int, int],
+            point_size: int,
+        ) -> QLabel:
+            label = QLabel(text, overlay)
+            label.setGeometry(*geometry)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setStyleSheet(
+                f"color: {color}; font-size: {point_size}px; font-weight: 700; "
+                "background: transparent;"
+            )
+            return label
+
+        make_label("⌂", "#f4f6fb", (15, 0, 28, 28), 21)
+        make_label("Z", "#4e78f4", (70, 13, 22, 22), 15)
+        make_label("X", "#ef5147", (7, 88, 22, 22), 15)
+        make_label("Y", "#55bb62", (135, 59, 22, 22), 15)
+        make_label("▼", "#d7dce6", (132, 126, 26, 22), 12)
+        self._position_orientation_overlay()
+
+    def _position_orientation_overlay(self) -> None:
+        if self._orientation_overlay is None:
+            return
+        width = min(170, max(self.width(), 0))
+        height = min(158, max(self.height(), 0))
+        self._orientation_overlay.setGeometry(0, 0, width, height)
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 (Qt API name)
+        super().resizeEvent(event)
+        self._position_orientation_overlay()
 
     # --- камера --------------------------------------------------------------
     def _install_navigation_style(self) -> None:
@@ -454,17 +504,20 @@ class Viewport3D(QWidget):
             self.plotter.remove_actor(self._bottom_plane_actor, render=False)
 
         bottom_z = -height / 2.0 + max(height * 1e-4, 1e-3)
-        # A large square grid gives the same spatial cue as a CAD workplane.
-        # It is intentionally much larger than the vat, while camera framing
-        # above uses explicit bounds so the grid does not make the model tiny.
-        grid_span = max(diameter_mm * 20.0, 1000.0)
+        # A compact square grid gives the same spatial cue as a CAD workplane
+        # without taking over the viewport. Camera framing above uses explicit
+        # vat/model bounds, so the plane never makes the model tiny.
+        grid_span = max(
+            diameter_mm * VIEWPORT_WORKPLANE_SPAN_RATIO,
+            VIEWPORT_WORKPLANE_MIN_SPAN_MM,
+        )
         bottom_plane = pv.Plane(
             center=(0.0, 0.0, bottom_z),
             direction=(0.0, 0.0, 1.0),
             i_size=grid_span,
             j_size=grid_span,
-            i_resolution=64,
-            j_resolution=64,
+            i_resolution=VIEWPORT_WORKPLANE_RESOLUTION,
+            j_resolution=VIEWPORT_WORKPLANE_RESOLUTION,
         )
 
         self._vat_actor = self.plotter.add_mesh(

@@ -20,7 +20,9 @@ from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -104,6 +106,43 @@ class SlicerTab(QWidget):
         toolbar.addWidget(self.generate_btn)
         toolbar.addStretch(1)
         root.addLayout(toolbar)
+
+        self._workflow_hint = QFrame()
+        self._workflow_hint.setObjectName("workflowHint")
+        hint_layout = QVBoxLayout(self._workflow_hint)
+        hint_layout.setContentsMargins(12, 8, 12, 8)
+        hint_layout.setSpacing(2)
+
+        hint_title = QLabel("Как работает слайсер")
+        hint_title.setObjectName("workflowHintTitle")
+        hint_layout.addWidget(hint_title)
+
+        hint_text = QLabel(
+            "STL-модель помещается в виртуальную колбу. Для каждого угла вращения "
+            "слайсер рассчитывает 2D-проекцию: светлые области кадра показывают, "
+            "где должен засветиться фотополимер. Готовые кадры можно проиграть во "
+            "вкладке «Проектор» или проверить во вкладке «Симулятор»."
+        )
+        hint_text.setObjectName("workflowHintText")
+        hint_text.setWordWrap(True)
+        hint_layout.addWidget(hint_text)
+
+        hint_steps = QLabel(
+            "1. Загрузите STL  →  2. Проверьте положение и масштаб  →  "
+            "3. Сгенерируйте проекции  →  4. Проиграйте или проверьте результат"
+        )
+        hint_steps.setObjectName("workflowHintSteps")
+        hint_steps.setWordWrap(True)
+        hint_layout.addWidget(hint_steps)
+
+        hint_controls = QLabel(
+            "Навигация: ЛКМ — вращение камеры, ПКМ — перемещение, колесо — "
+            "приближение/отдаление. Кубик сверху слева переключает вид."
+        )
+        hint_controls.setObjectName("workflowHintControls")
+        hint_controls.setWordWrap(True)
+        hint_layout.addWidget(hint_controls)
+        root.addWidget(self._workflow_hint)
 
         # Настройки принтера находятся на отдельной вкладке, поэтому слайсер
         # оставляет вьюпорту всю ширину окна.

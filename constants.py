@@ -48,6 +48,10 @@ MAX_METADATA_FILE_BYTES = 4 * 1024 * 1024
 # отношение к диаметру. Она НЕ пересчитывается при трансформации модели.
 VAT_HEIGHT_RATIO = 1.6
 VAT_RESOLUTION = 96
+VIEWPORT_WORKPLANE_SPAN_RATIO = 3.0
+VIEWPORT_WORKPLANE_MIN_SPAN_MM = 120.0
+VIEWPORT_WORKPLANE_RESOLUTION = 32
+VIEWPORT_ORIENTATION_WIDGET_SIZE = 92
 
 # Децимация полигонов — только для показа во вьюпорте (60 FPS на тяжёлых STL).
 # На расчёт проекций это не влияет: генерация всегда использует исходный меш.
