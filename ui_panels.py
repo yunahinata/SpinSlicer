@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -385,7 +386,7 @@ class ProcessSettingsPanel(QWidget):
         )
 
 
-class ScaleControls(QWidget):
+class ScaleControls(QFrame):
     """Compact Fusion-style percentage/size controls for the scale gizmo."""
 
     scalePercentChanged = pyqtSignal(int, float)
@@ -394,11 +395,17 @@ class ScaleControls(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("scaleControls")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShadow(QFrame.Shadow.Plain)
+        self.setLineWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setFixedWidth(374)
 
         layout = QGridLayout(self)
-        layout.setContentsMargins(10, 4, 10, 8)
-        layout.setHorizontalSpacing(8)
+        layout.setContentsMargins(9, 4, 9, 7)
+        layout.setHorizontalSpacing(6)
         layout.setVerticalSpacing(4)
+        layout.setColumnMinimumWidth(0, 54)
 
         layout.addWidget(QLabel(""), 0, 0)
         self.axis_labels: list[QLabel] = []
@@ -449,7 +456,7 @@ class ScaleControls(QWidget):
         field.setDecimals(decimals)
         field.setSingleStep(1.0)
         field.setSuffix(suffix)
-        field.setFixedWidth(96)
+        field.setFixedWidth(86)
         field.setValue(value)
         return field
 
@@ -524,7 +531,7 @@ class TransformToolbar(QWidget):
 
         self.scale_controls = ScaleControls(self)
         self.scale_controls.setVisible(False)
-        layout.addWidget(self.scale_controls)
+        layout.addWidget(self.scale_controls, 0, Qt.AlignmentFlag.AlignRight)
 
         self._wire_signals()
         self.set_enabled_state(False)

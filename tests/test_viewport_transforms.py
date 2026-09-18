@@ -3,7 +3,23 @@ from __future__ import annotations
 import numpy as np
 import trimesh.transformations as tf
 
-from viewport import _scale_matrix_from_box, _transformed_bounds
+from viewport import _camera_up_vector, _scale_matrix_from_box, _transformed_bounds
+
+
+def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:
+    direction = np.array([1.0, -2.0, -3.0])
+
+    up = _camera_up_vector(direction)
+
+    assert np.isclose(np.linalg.norm(up), 1.0)
+    assert np.isclose(np.dot(up, direction), 0.0)
+    assert np.dot(up, [0.0, 0.0, 1.0]) > 0.0
+
+
+def test_camera_up_vector_uses_stable_fallback_when_looking_along_z() -> None:
+    up = _camera_up_vector(np.array([0.0, 0.0, -1.0]))
+
+    assert np.allclose(up, [0.0, 1.0, 0.0])
 
 
 def test_transformed_bounds_follow_model_matrix() -> None:

@@ -113,6 +113,38 @@ def _compose_trs(
     return result
 
 
+def _camera_up_vector(direction: np.ndarray) -> np.ndarray:
+    """Return a camera up vector projected from the world Z axis.
+
+    Trackball rotation can otherwise roll the camera when the pointer crosses
+    the horizon. Keeping world Z as the reference makes the viewport behave
+    like a CAD editor: orbiting changes azimuth/elevation without leaning the
+    scene to the left or right.
+    """
+
+    view_direction = np.asarray(direction, dtype=np.float64)
+    if view_direction.shape != (3,) or not np.all(np.isfinite(view_direction)):
+        return np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
+    length = float(np.linalg.norm(view_direction))
+    if length <= 1e-9:
+        return np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    view_direction = view_direction / length
+
+    world_up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    up = world_up - np.dot(world_up, view_direction) * view_direction
+    up_length = float(np.linalg.norm(up))
+    if up_length <= 1e-9:
+        # Looking almost straight along Z leaves no Z projection. World Y is
+        # a stable fallback and still keeps the camera roll-free.
+        fallback_up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        up = fallback_up - np.dot(fallback_up, view_direction) * view_direction
+        up_length = float(np.linalg.norm(up))
+    if up_length <= 1e-9:
+        return np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    return up / up_length
+
+
 def _scale_matrix_from_box(
     candidate: np.ndarray,
     baseline: np.ndarray,
@@ -196,12 +228,6 @@ class Viewport3D(QWidget):
             plotter.enable_anti_aliasing("msaa")
         except Exception:
             pass
-        try:
-            # Плавная орбитальная камера мышью — как в проф. слайсерах,
-            # никаких "съезжающих" осей, которые были у matplotlib.
-            plotter.enable_trackball_style()
-        except Exception:
-            pass
 
         self._vat_actor: Any = None
         self._bottom_plane_actor: Any = None
@@ -220,13 +246,20 @@ class Viewport3D(QWidget):
         self._affine_capture_pending = False
         self._pending_affine_start: np.ndarray | None = None
         self._scale_interaction_start_matrix: np.ndarray | None = None
+        self._navigation_style: Any = None
+        self._scale_handle_actors: list[Any] = []
 
+        self._install_navigation_style()
         self._create_orientation_cube(plotter)
 
         self._reset_camera_view()
 
     def _create_orientation_cube(self, plotter: Any) -> None:
-        """Create a real, draggable Fusion-style orientation cube."""
+        """Create a fixed Fusion-style orientation cube.
+
+        The marker is deliberately not interactive: it is a stable camera
+        indicator, not another draggable/scalable object in the scene.
+        """
 
         try:
             interactor = self._vtk_interactor(plotter)
@@ -239,25 +272,25 @@ class Viewport3D(QWidget):
             cube.SetYMinusFaceText("BACK")
             cube.SetZPlusFaceText("TOP")
             cube.SetZMinusFaceText("BOTTOM")
-            cube.SetFaceTextScale(0.30)
+            cube.SetFaceTextScale(0.14)
             cube.SetFaceTextVisibility(True)
             cube.SetTextEdgesVisibility(True)
             cube.SetCubeVisibility(True)
-            cube.GetCubeProperty().SetColor(0.12, 0.16, 0.23)
-            cube.GetTextEdgesProperty().SetColor(0.82, 0.86, 0.94)
-            cube.GetXPlusFaceProperty().SetColor(0.18, 0.28, 0.44)
-            cube.GetXMinusFaceProperty().SetColor(0.18, 0.28, 0.44)
-            cube.GetYPlusFaceProperty().SetColor(0.18, 0.40, 0.28)
-            cube.GetYMinusFaceProperty().SetColor(0.18, 0.40, 0.28)
-            cube.GetZPlusFaceProperty().SetColor(0.45, 0.33, 0.16)
-            cube.GetZMinusFaceProperty().SetColor(0.45, 0.33, 0.16)
+            cube.GetCubeProperty().SetColor(0.82, 0.84, 0.87)
+            cube.GetTextEdgesProperty().SetColor(0.16, 0.19, 0.24)
+            cube.GetXPlusFaceProperty().SetColor(0.91, 0.92, 0.94)
+            cube.GetXMinusFaceProperty().SetColor(0.78, 0.80, 0.84)
+            cube.GetYPlusFaceProperty().SetColor(0.86, 0.88, 0.91)
+            cube.GetYMinusFaceProperty().SetColor(0.73, 0.76, 0.81)
+            cube.GetZPlusFaceProperty().SetColor(0.96, 0.96, 0.97)
+            cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
 
             orientation_widget = vtk.vtkOrientationMarkerWidget()
             orientation_widget.SetOrientationMarker(cube)
             orientation_widget.SetInteractor(plotter.iren.interactor)
             orientation_widget.SetViewport(0.79, 0.76, 0.98, 0.98)
             orientation_widget.SetEnabled(1)
-            orientation_widget.SetInteractive(1)
+            orientation_widget.SetInteractive(0)
             self._orientation_cube = cube
             self._orientation_widget = orientation_widget
         except Exception:
@@ -275,6 +308,63 @@ class Viewport3D(QWidget):
                 self._orientation_widget = None
 
     # --- камера --------------------------------------------------------------
+    def _install_navigation_style(self) -> None:
+        """Use CAD-like mouse bindings and keep the camera horizon level."""
+
+        if self._vtk_interactor(self.plotter) is None:
+            return
+        try:
+            # Tinkercad-style navigation: left drag pans, middle drag orbits,
+            # and right drag dollies. Modified buttons keep the same intent
+            # instead of unexpectedly rolling or changing the interaction.
+            self.plotter.enable_custom_trackball_style(
+                left="pan",
+                shift_left="pan",
+                control_left="pan",
+                middle="rotate",
+                shift_middle="rotate",
+                control_middle="rotate",
+                right="dolly",
+                shift_right="dolly",
+                control_right="dolly",
+            )
+            style = getattr(getattr(self.plotter, "iren", None), "style", None)
+            if style is None:
+                return
+            style.add_observer("InteractionEvent", self._on_camera_interaction)
+            style.add_observer("EndInteractionEvent", self._on_camera_interaction)
+            self._navigation_style = style
+            self._lock_camera_roll()
+        except Exception:
+            # Keep the viewport usable with older PyVista/VTK combinations.
+            try:
+                self.plotter.enable_trackball_style()
+            except Exception:
+                pass
+
+    def _on_camera_interaction(self, *_args: object) -> None:
+        self._lock_camera_roll()
+
+    def _lock_camera_roll(self) -> None:
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            return
+        try:
+            position = np.asarray(camera.position, dtype=np.float64)
+            focal_point = np.asarray(camera.focal_point, dtype=np.float64)
+            if (
+                position.shape != (3,)
+                or focal_point.shape != (3,)
+                or not np.all(np.isfinite(position))
+                or not np.all(np.isfinite(focal_point))
+            ):
+                return
+            direction = focal_point - position
+            up = _camera_up_vector(direction)
+            camera.SetViewUp(float(up[0]), float(up[1]), float(up[2]))
+        except (AttributeError, TypeError, ValueError):
+            return
+
     @staticmethod
     def _vtk_interactor(plotter: Any) -> Any | None:
         """Return VTK's event interactor, or ``None`` for off-screen renders."""
@@ -318,6 +408,7 @@ class Viewport3D(QWidget):
             self.plotter.camera.elevation += 12
         except Exception:
             pass
+        self._lock_camera_roll()
         self.plotter.render()
 
     def reset_camera(self) -> None:
@@ -482,12 +573,19 @@ class Viewport3D(QWidget):
         scale_representation.PlaceWidget(bounds)
         scale_representation.SetTransform(_numpy_to_vtk_transform(np.eye(4, dtype=np.float64)))
         scale_representation.SetHandleSize(0.030)
-        scale_representation.GetHandleProperty().SetColor(0.95, 0.76, 0.22)
-        scale_representation.GetSelectedHandleProperty().SetColor(1.0, 0.92, 0.35)
+        scale_representation.GetHandleProperty().SetColor(0.82, 0.85, 0.90)
+        scale_representation.GetHandleProperty().SetOpacity(1.0)
+        scale_representation.GetSelectedHandleProperty().SetColor(1.0, 1.0, 1.0)
+        scale_representation.GetSelectedHandleProperty().SetOpacity(1.0)
         scale_representation.GetFaceProperty().SetOpacity(0.035)
         scale_representation.GetSelectedFaceProperty().SetOpacity(0.14)
-        scale_representation.GetOutlineProperty().SetColor(0.95, 0.76, 0.22)
-        scale_representation.GetSelectedOutlineProperty().SetColor(1.0, 0.92, 0.35)
+        scale_representation.GetOutlineProperty().SetColor(0.70, 0.76, 0.84)
+        scale_representation.GetOutlineProperty().SetLineWidth(1.4)
+        scale_representation.GetOutlineProperty().SetLineStipplePattern(0xF0F0)
+        scale_representation.GetOutlineProperty().SetLineStippleRepeatFactor(2)
+        scale_representation.GetSelectedOutlineProperty().SetColor(0.95, 0.97, 1.0)
+        scale_representation.GetSelectedOutlineProperty().SetLineWidth(1.8)
+        self._scale_handle_actors = self._style_scale_handles(scale_representation)
 
         scale_widget = vtk.vtkBoxWidget2()
         scale_widget.SetInteractor(interactor)
@@ -503,6 +601,54 @@ class Viewport3D(QWidget):
         scale_widget.Off()
         self._scale_widget = scale_widget
         self._scale_representation = scale_representation
+
+    @staticmethod
+    def _style_scale_handles(representation: Any) -> list[Any]:
+        """Color VTK's six square axis handles like a CAD scale gizmo.
+
+        ``vtkBoxRepresentation`` exposes one shared handle property, so
+        setting that property alone makes every handle the same color. The
+        representation's actor collection contains the six axis handles after
+        its three outline actors; give each actor its own property instead.
+        """
+
+        actors_collection = vtk.vtkPropCollection()
+        representation.GetActors(actors_collection)
+        actors_collection.InitTraversal()
+        actors: list[Any] = []
+        prop = actors_collection.GetNextProp()
+        while prop is not None:
+            actor = vtk.vtkActor.SafeDownCast(prop)
+            if actor is not None:
+                actors.append(actor)
+            prop = actors_collection.GetNextProp()
+
+        if len(actors) < 9:
+            return []
+
+        axis_colors = (
+            (0.93, 0.20, 0.17),
+            (0.93, 0.20, 0.17),
+            (0.25, 0.79, 0.36),
+            (0.25, 0.79, 0.36),
+            (0.10, 0.78, 0.82),
+            (0.10, 0.78, 0.82),
+        )
+        for actor, color in zip(actors[3:9], axis_colors):
+            actor_property = vtk.vtkProperty()
+            actor_property.DeepCopy(actor.GetProperty())
+            actor_property.SetColor(*color)
+            actor_property.SetRepresentationToSurface()
+            actor_property.SetAmbient(0.25)
+            actor_property.SetDiffuse(0.75)
+            actor_property.SetSpecular(0.10)
+            actor.SetProperty(actor_property)
+
+        # The seventh handle is the center/translation handle. Translation is
+        # disabled for this scale box, so it only adds visual noise.
+        if len(actors) >= 10:
+            actors[9].SetVisibility(False)
+        return actors[3:]
 
     def _replace_rotation_rings(self) -> None:
         """Use full Tinkercad-style rings instead of PyVista's quarter arcs."""
@@ -574,6 +720,7 @@ class Viewport3D(QWidget):
             self._scale_widget.RemoveAllObservers()
             self._scale_widget = None
         self._scale_representation = None
+        self._scale_handle_actors = []
         self._scale_interaction_start_matrix = None
 
     def set_uniform_scale(self, enabled: bool) -> None:
@@ -634,6 +781,10 @@ class Viewport3D(QWidget):
         if self._affine_widget is not None:
             self._affine_widget._cached_matrix = final_matrix.copy()
         self._emit_transform_changed(final_matrix)
+        # PyVista's affine widget temporarily restores its default camera
+        # style after a drag. Reapply the CAD bindings so left-drag panning
+        # remains consistent after the first move/rotate operation.
+        self._install_navigation_style()
 
     def _scale_widget_matrix(self) -> np.ndarray | None:
         if self._scale_representation is None:
@@ -674,6 +825,10 @@ class Viewport3D(QWidget):
             self._stop_matrix_animation()
             self._set_actor_matrix(matrix)
             self._scale_interaction_start_matrix = None
+            if self._scale_representation is not None:
+                self._scale_handle_actors = self._style_scale_handles(
+                    self._scale_representation,
+                )
             self._emit_transform_changed(matrix)
         else:
             self._scale_interaction_start_matrix = None
