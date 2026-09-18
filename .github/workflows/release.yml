@@ -165,6 +165,7 @@ jobs:
             - Added a visible square CAD-style vat workplane and a real annotated orientation cube.
             - Added full rotation rings and compact Fusion-style percentage/size scaling controls.
             - Updated CAD navigation: left-button panning, middle-button orbiting, right-button dolly, and a roll-free camera horizon.
+            - Swapped CAD camera bindings to left-button rotation and right-button panning, and keep the vat centered after camera reset.
             - Fixed and restyled the orientation cube, and added compact color-coded square scale handles.
             - Kept the progress indicator on the main Slicer tab and moved Settings to the end.
             - Added an optional isolated Conda installer and runtime bridge for VAMToolbox CAL.

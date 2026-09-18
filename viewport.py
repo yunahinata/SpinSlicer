@@ -314,19 +314,19 @@ class Viewport3D(QWidget):
         if self._vtk_interactor(self.plotter) is None:
             return
         try:
-            # Tinkercad-style navigation: left drag pans, middle drag orbits,
-            # and right drag dollies. Modified buttons keep the same intent
-            # instead of unexpectedly rolling or changing the interaction.
+            # Tinkercad-style navigation: left drag orbits, right drag pans,
+            # and the middle button dollies. Modified buttons keep the same
+            # intent instead of unexpectedly rolling or changing interaction.
             self.plotter.enable_custom_trackball_style(
-                left="pan",
-                shift_left="pan",
-                control_left="pan",
-                middle="rotate",
-                shift_middle="rotate",
-                control_middle="rotate",
-                right="dolly",
-                shift_right="dolly",
-                control_right="dolly",
+                left="rotate",
+                shift_left="rotate",
+                control_left="rotate",
+                middle="dolly",
+                shift_middle="dolly",
+                control_middle="dolly",
+                right="pan",
+                shift_right="pan",
+                control_right="pan",
             )
             style = getattr(getattr(self.plotter, "iren", None), "style", None)
             if style is None:
@@ -362,6 +362,28 @@ class Viewport3D(QWidget):
             direction = focal_point - position
             up = _camera_up_vector(direction)
             camera.SetViewUp(float(up[0]), float(up[1]), float(up[2]))
+        except (AttributeError, TypeError, ValueError):
+            return
+
+    def _focus_camera_on_vat(self) -> None:
+        """Keep the camera target at the fixed vat origin after a reset."""
+
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            return
+        try:
+            position = np.asarray(camera.position, dtype=np.float64)
+            focal_point = np.asarray(camera.focal_point, dtype=np.float64)
+            if (
+                position.shape != (3,)
+                or focal_point.shape != (3,)
+                or not np.all(np.isfinite(position))
+                or not np.all(np.isfinite(focal_point))
+            ):
+                return
+            target = np.zeros(3, dtype=np.float64)
+            camera.SetPosition(*[float(value) for value in position - focal_point])
+            camera.SetFocalPoint(*[float(value) for value in target])
         except (AttributeError, TypeError, ValueError):
             return
 
@@ -401,13 +423,14 @@ class Viewport3D(QWidget):
         )
 
     def _reset_camera_view(self) -> None:
-        self.plotter.reset_camera(bounds=self._camera_reset_bounds())
-        self.plotter.camera_position = "iso"
+        bounds = self._camera_reset_bounds()
+        self.plotter.view_isometric(bounds=bounds, render=False)
         try:
             self.plotter.camera.azimuth += 25
             self.plotter.camera.elevation += 12
         except Exception:
             pass
+        self._focus_camera_on_vat()
         self._lock_camera_roll()
         self.plotter.render()
 
