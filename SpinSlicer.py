@@ -119,28 +119,6 @@ QLabel#hintLabel {{
 QLabel#fieldLabel {{
     font-size: 12px;
 }}
-QFrame#workflowHint {{
-    background-color: #171b25;
-    border: 1px solid #33384a;
-    border-radius: 8px;
-}}
-QLabel#workflowHintTitle {{
-    color: #edf2ff;
-    font-size: 12px;
-    font-weight: 700;
-}}
-QLabel#workflowHintText {{
-    color: #c0c8d8;
-    font-size: 11px;
-}}
-QLabel#workflowHintSteps {{
-    color: #8fb3f0;
-    font-size: 11px;
-}}
-QLabel#workflowHintControls {{
-    color: #8f98aa;
-    font-size: 10px;
-}}
 QLabel#videoPreview {{
     background-color: #101114;
     border: 1px solid #33384a;

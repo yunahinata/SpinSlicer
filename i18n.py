@@ -74,17 +74,6 @@ _EN: dict[str, str] = {
     "▶ Сгенерировать проекции": "▶ Generate projections",
     "📁 Открыть папку": "📁 Open output folder",
     "Настройка модели и генерация проекций": "Set up the model and generate projections",
-    "Как работает слайсер": "How the slicer works",
-    "STL-модель помещается в виртуальную колбу. Для каждого угла вращения слайсер рассчитывает 2D-проекцию: светлые области кадра показывают, где должен засветиться фотополимер. Готовые кадры можно проиграть во вкладке «Проектор» или проверить во вкладке «Симулятор».":
-        "The STL model is placed inside a virtual vat. For each rotation angle, "
-        "the slicer calculates a 2D projection: bright frame areas show where "
-        "the photopolymer should be cured. Play the generated frames in Projector "
-        "or inspect them in Simulator.",
-    "1. Загрузите STL  →  2. Проверьте положение и масштаб  →  3. Сгенерируйте проекции  →  4. Проиграйте или проверьте результат":
-        "1. Load STL  →  2. Check position and scale  →  3. Generate projections  →  4. Play or inspect the result",
-    "Навигация: ЛКМ — вращение камеры, ПКМ — перемещение, колесо — приближение/отдаление. Кубик сверху слева переключает вид.":
-        "Navigation: LMB rotates the camera, RMB pans, and the wheel zooms. "
-        "The cube in the upper-left switches the view.",
     "Проигрывание и экспорт готовых кадров в MP4": "Play and export generated frames to MP4",
     "Обратная реконструкция геометрии по кадрам": "Reconstruct geometry from projection frames",
     "VAMToolbox — альтернативный движок": "VAMToolbox — alternate engine",

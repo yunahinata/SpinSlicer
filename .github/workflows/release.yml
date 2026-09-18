@@ -169,6 +169,7 @@ jobs:
             - Fixed and restyled the orientation cube, and added compact color-coded square scale handles.
             - Reduced the CAD workplane and matched the compact reference-style orientation cube with Home and XYZ markers.
             - Added an in-app explanation of the projection-slicing workflow and camera controls.
+            - Removed the extra workflow card and Home/down overlay, and bound the XYZ labels to the orientation cube.
             - Kept the progress indicator on the main Slicer tab and moved Settings to the end.
             - Added an optional isolated Conda installer and runtime bridge for VAMToolbox CAL.
           generate_release_notes: false

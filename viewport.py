@@ -28,8 +28,8 @@ import pyvista as pv
 import trimesh
 import trimesh.transformations as tf
 import vtk
-from PyQt6.QtCore import QEasingCurve, Qt, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from constants import (
@@ -240,8 +240,9 @@ class Viewport3D(QWidget):
         self._scale_widget: Any = None
         self._scale_representation: Any = None
         self._orientation_cube: Any = None
+        self._orientation_axes: Any = None
+        self._orientation_assembly: Any = None
         self._orientation_widget: Any = None
-        self._orientation_overlay: QWidget | None = None
         self._affine_enabled = False
         self._transform_mode = "move"
         self._uniform_scale = True
@@ -256,7 +257,6 @@ class Viewport3D(QWidget):
 
         self._install_navigation_style()
         self._create_orientation_cube(plotter)
-        self._create_orientation_overlay()
 
         self._reset_camera_view()
 
@@ -287,13 +287,56 @@ class Viewport3D(QWidget):
             cube.GetZPlusFaceProperty().SetColor(0.96, 0.96, 0.97)
             cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
 
+            axes = vtk.vtkAxesActor()
+            axes.SetTotalLength(0.85, 0.85, 0.85)
+            axes.SetShaftTypeToLine()
+            axes.SetTipTypeToCone()
+            axes.SetAxisLabels(True)
+            axes.SetXAxisLabelText("X")
+            axes.SetYAxisLabelText("Y")
+            axes.SetZAxisLabelText("Z")
+            axes.SetNormalizedLabelPosition(1.08, 1.08, 1.08)
+            axis_colors = (
+                (0.94, 0.25, 0.22),
+                (0.35, 0.75, 0.38),
+                (0.30, 0.47, 0.95),
+            )
+            captions = (
+                axes.GetXAxisCaptionActor2D(),
+                axes.GetYAxisCaptionActor2D(),
+                axes.GetZAxisCaptionActor2D(),
+            )
+            shafts = (
+                axes.GetXAxisShaftProperty(),
+                axes.GetYAxisShaftProperty(),
+                axes.GetZAxisShaftProperty(),
+            )
+            tips = (
+                axes.GetXAxisTipProperty(),
+                axes.GetYAxisTipProperty(),
+                axes.GetZAxisTipProperty(),
+            )
+            for color, caption, shaft, tip in zip(axis_colors, captions, shafts, tips):
+                caption.GetCaptionTextProperty().SetColor(*color)
+                caption.GetCaptionTextProperty().SetBold(True)
+                caption.BorderOff()
+                caption.LeaderOff()
+                shaft.SetColor(*color)
+                tip.SetColor(*color)
+
+            assembly = vtk.vtkPropAssembly()
+            assembly.AddPart(cube)
+            assembly.AddPart(axes)
+
             orientation_widget = vtk.vtkOrientationMarkerWidget()
-            orientation_widget.SetOrientationMarker(cube)
+            orientation_widget.SetOrientationMarker(assembly)
             orientation_widget.SetInteractor(plotter.iren.interactor)
             orientation_widget.SetViewport(0.02, 0.78, 0.16, 0.97)
             orientation_widget.SetEnabled(1)
             orientation_widget.SetInteractive(0)
             self._orientation_cube = cube
+            self._orientation_axes = axes
+            self._orientation_assembly = assembly
             self._orientation_widget = orientation_widget
         except Exception:
             # Keep the scene usable with older VTK builds lacking the marker
@@ -314,48 +357,9 @@ class Viewport3D(QWidget):
                 self._orientation_widget = camera_widget
             except Exception:
                 self._orientation_cube = None
+                self._orientation_axes = None
+                self._orientation_assembly = None
                 self._orientation_widget = None
-
-    def _create_orientation_overlay(self) -> None:
-        """Add the small fixed Home/XYZ labels shown around the view cube."""
-
-        overlay = QWidget(self)
-        overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self._orientation_overlay = overlay
-
-        def make_label(
-            text: str,
-            color: str,
-            geometry: tuple[int, int, int, int],
-            point_size: int,
-        ) -> QLabel:
-            label = QLabel(text, overlay)
-            label.setGeometry(*geometry)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet(
-                f"color: {color}; font-size: {point_size}px; font-weight: 700; "
-                "background: transparent;"
-            )
-            return label
-
-        make_label("⌂", "#f4f6fb", (15, 0, 28, 28), 21)
-        make_label("Z", "#4e78f4", (70, 13, 22, 22), 15)
-        make_label("X", "#ef5147", (7, 88, 22, 22), 15)
-        make_label("Y", "#55bb62", (135, 59, 22, 22), 15)
-        make_label("▼", "#d7dce6", (132, 126, 26, 22), 12)
-        self._position_orientation_overlay()
-
-    def _position_orientation_overlay(self) -> None:
-        if self._orientation_overlay is None:
-            return
-        width = min(170, max(self.width(), 0))
-        height = min(158, max(self.height(), 0))
-        self._orientation_overlay.setGeometry(0, 0, width, height)
-
-    def resizeEvent(self, event: Any) -> None:  # noqa: N802 (Qt API name)
-        super().resizeEvent(event)
-        self._position_orientation_overlay()
 
     # --- камера --------------------------------------------------------------
     def _install_navigation_style(self) -> None:
