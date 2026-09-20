@@ -51,21 +51,37 @@ VAT_RESOLUTION = 96
 VIEWPORT_WORKPLANE_SPAN_RATIO = 3.0
 VIEWPORT_WORKPLANE_MIN_SPAN_MM = 120.0
 VIEWPORT_WORKPLANE_RESOLUTION = 32
-VIEWPORT_ORIENTATION_WIDGET_SIZE = 128
-# Normalized VTK viewport for the custom ViewCube: upper-left, with enough
-# room for the axis tips and labels to sit on the cube's outer faces.
-VIEWPORT_ORIENTATION_VIEWPORT = (0.0, 0.70, 0.215, 0.995)
+# Size of the last-resort native marker; the smaller footprint keeps it tight
+# to the upper-left corner when the custom marker is unavailable.
+VIEWPORT_ORIENTATION_WIDGET_SIZE = 96
+# Normalized VTK viewport for the custom ViewCube: tight to the upper-left
+# corner while still leaving room for the three edge-continuation arrows.
+VIEWPORT_ORIENTATION_VIEWPORT = (0.0, 0.72, 0.18, 0.995)
 VIEWPORT_ORIENTATION_CUBE_SCALE = 1.18
 VIEWPORT_ORIENTATION_AXIS_LENGTH = 1.05
-# Start at the scaled +X/+Y/+Z corner. Each arrow is a continuation of one of
-# the three cube edges meeting at that corner.
-VIEWPORT_ORIENTATION_AXIS_ORIGIN = (
-    0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
-    0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
-    0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+# Each positive axis starts at its own outer cube vertex. This keeps the
+# arrowhead visibly attached to the vertex instead of emerging from a face.
+VIEWPORT_ORIENTATION_AXIS_ORIGINS = (
+    (
+        0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+    ),
+    (
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+    ),
+    (
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        -0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+        0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE,
+    ),
 )
 VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH = 0.14
-VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS = 0.30
+# Absolute world-space radius for the small arrowhead cone.
+VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS = 0.10
+VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION = 3
 VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH = 2.5
 VIEWPORT_ORIENTATION_DRAG_SENSITIVITY = 0.70
 

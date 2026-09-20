@@ -42,9 +42,10 @@ from constants import (
     VIEWPORT_BG_BOTTOM,
     VIEWPORT_BG_TOP,
     VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS,
+    VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION,
     VIEWPORT_ORIENTATION_AXIS_LENGTH,
     VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH,
-    VIEWPORT_ORIENTATION_AXIS_ORIGIN,
+    VIEWPORT_ORIENTATION_AXIS_ORIGINS,
     VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
     VIEWPORT_ORIENTATION_DRAG_SENSITIVITY,
@@ -379,32 +380,8 @@ class Viewport3D(QWidget):
             interactor = self._vtk_interactor(plotter)
             if interactor is None:
                 raise RuntimeError("VTK interactor is unavailable")
-            cube = vtk.vtkAnnotatedCubeActor()
-            cube.SetXPlusFaceText("RIGHT")
-            cube.SetXMinusFaceText("LEFT")
-            cube.SetYPlusFaceText("FRONT")
-            cube.SetYMinusFaceText("BACK")
-            cube.SetZPlusFaceText("TOP")
-            cube.SetZMinusFaceText("BOTTOM")
-            cube.SetFaceTextScale(0.14)
-            cube.SetFaceTextVisibility(True)
-            cube.SetTextEdgesVisibility(True)
-            cube.SetCubeVisibility(True)
-            cube.SetScale(
-                VIEWPORT_ORIENTATION_CUBE_SCALE,
-                VIEWPORT_ORIENTATION_CUBE_SCALE,
-                VIEWPORT_ORIENTATION_CUBE_SCALE,
-            )
-            cube.GetCubeProperty().SetColor(0.82, 0.84, 0.87)
-            cube.GetTextEdgesProperty().SetColor(0.16, 0.19, 0.24)
-            cube.GetXPlusFaceProperty().SetColor(0.91, 0.92, 0.94)
-            cube.GetXMinusFaceProperty().SetColor(0.78, 0.80, 0.84)
-            cube.GetYPlusFaceProperty().SetColor(0.86, 0.88, 0.91)
-            cube.GetYMinusFaceProperty().SetColor(0.73, 0.76, 0.81)
-            cube.GetZPlusFaceProperty().SetColor(0.96, 0.96, 0.97)
-            cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
-
-            axes = self._configure_orientation_axes(vtk.vtkAxesActor())
+            cube = self._configure_orientation_cube(vtk.vtkAnnotatedCubeActor())
+            axes = self._create_orientation_axes()
 
             assembly = vtk.vtkPropAssembly()
             assembly.AddPart(cube)
@@ -447,17 +424,154 @@ class Viewport3D(QWidget):
                 self._orientation_marker_uses_custom_drag = False
 
     @staticmethod
-    def _configure_orientation_axes(axes: Any) -> Any:
-        """Configure flat RGB arrows as continuations of the cube's edges."""
+    def _configure_orientation_cube(cube: Any) -> Any:
+        """Configure the compact face-labeled cube without text shadows."""
 
-        axes.SetOrigin(*VIEWPORT_ORIENTATION_AXIS_ORIGIN)
-        axes.SetTotalLength(
-            VIEWPORT_ORIENTATION_AXIS_LENGTH,
-            VIEWPORT_ORIENTATION_AXIS_LENGTH,
-            VIEWPORT_ORIENTATION_AXIS_LENGTH,
+        cube.SetXPlusFaceText("RIGHT")
+        cube.SetXMinusFaceText("LEFT")
+        cube.SetYPlusFaceText("FRONT")
+        cube.SetYMinusFaceText("BACK")
+        cube.SetZPlusFaceText("TOP")
+        cube.SetZMinusFaceText("BOTTOM")
+        cube.SetFaceTextScale(0.14)
+        cube.SetFaceTextVisibility(True)
+        cube.SetTextEdgesVisibility(False)
+        cube.SetCubeVisibility(True)
+        cube.SetScale(
+            VIEWPORT_ORIENTATION_CUBE_SCALE,
+            VIEWPORT_ORIENTATION_CUBE_SCALE,
+            VIEWPORT_ORIENTATION_CUBE_SCALE,
         )
-        # Keep the line shaft and cone joined so the edge continuation remains
-        # solid instead of leaving a visible gap before the arrowhead.
+        cube.GetCubeProperty().SetColor(0.82, 0.84, 0.87)
+        cube.GetXPlusFaceProperty().SetColor(0.91, 0.92, 0.94)
+        cube.GetXMinusFaceProperty().SetColor(0.78, 0.80, 0.84)
+        cube.GetYPlusFaceProperty().SetColor(0.86, 0.88, 0.91)
+        cube.GetYMinusFaceProperty().SetColor(0.73, 0.76, 0.81)
+        cube.GetZPlusFaceProperty().SetColor(0.96, 0.96, 0.97)
+        cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
+        return cube
+
+    @staticmethod
+    def _create_orientation_axes() -> Any:
+        """Create one flat RGB arrow per cube vertex."""
+
+        assembly = vtk.vtkPropAssembly()
+        axis_colors = (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )
+        axis_directions = (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )
+        axis_labels = ("X", "Y", "Z")
+        for axis_index, (origin, direction, color, label) in enumerate(
+            zip(
+                VIEWPORT_ORIENTATION_AXIS_ORIGINS,
+                axis_directions,
+                axis_colors,
+                axis_labels,
+            )
+        ):
+            axis = Viewport3D._create_orientation_arrow(
+                axis_index,
+                origin,
+                direction,
+                color,
+                label,
+            )
+            assembly.AddPart(axis)
+        return assembly
+
+    @staticmethod
+    def _create_orientation_arrow(
+        axis_index: int,
+        origin: tuple[float, float, float],
+        direction: tuple[float, float, float],
+        color: tuple[float, float, float],
+        label: str,
+    ) -> Any:
+        """Build an arrow whose line source starts exactly at ``origin``."""
+
+        del axis_index  # Kept in the signature to make the three-axis mapping explicit.
+        arrow = vtk.vtkPropAssembly()
+        tip_length = (
+            VIEWPORT_ORIENTATION_AXIS_LENGTH * VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH
+        )
+        shaft_length = VIEWPORT_ORIENTATION_AXIS_LENGTH - tip_length
+
+        shaft_end = tuple(
+            origin[index] + direction[index] * shaft_length for index in range(3)
+        )
+        tip_center = tuple(
+            origin[index] + direction[index] * (shaft_length + tip_length / 2.0)
+            for index in range(3)
+        )
+        label_position = tuple(
+            origin[index]
+            + direction[index] * (VIEWPORT_ORIENTATION_AXIS_LENGTH + 0.04)
+            for index in range(3)
+        )
+
+        line_source = vtk.vtkLineSource()
+        line_source.SetPoint1(*origin)
+        line_source.SetPoint2(*shaft_end)
+        line_mapper = vtk.vtkPolyDataMapper()
+        line_mapper.SetInputConnection(line_source.GetOutputPort())
+        line_actor = vtk.vtkActor()
+        line_actor.SetMapper(line_mapper)
+        line_actor.GetProperty().SetColor(*color)
+        line_actor.GetProperty().SetLineWidth(VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
+        line_actor.GetProperty().SetLighting(False)
+        arrow.AddPart(line_actor)
+
+        cone_source = vtk.vtkConeSource()
+        cone_source.SetCenter(*tip_center)
+        # vtkConeSource points its apex opposite to SetDirection's vector.
+        # Negating it makes the apex the outward end of the arrow.
+        cone_source.SetDirection(*(-value for value in direction))
+        cone_source.SetHeight(tip_length)
+        cone_source.SetRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
+        cone_source.SetResolution(VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION)
+        cone_mapper = vtk.vtkPolyDataMapper()
+        cone_mapper.SetInputConnection(cone_source.GetOutputPort())
+        cone_actor = vtk.vtkActor()
+        cone_actor.SetMapper(cone_mapper)
+        cone_actor.GetProperty().SetColor(*color)
+        cone_actor.GetProperty().SetLighting(False)
+        arrow.AddPart(cone_actor)
+
+        caption = vtk.vtkCaptionActor2D()
+        caption.SetCaption(label)
+        caption.SetAttachmentPoint(*label_position)
+        caption.GetCaptionTextProperty().SetColor(*color)
+        caption.GetCaptionTextProperty().SetBold(True)
+        caption.GetCaptionTextProperty().ShadowOff()
+        caption.GetCaptionTextProperty().FrameOff()
+        caption.GetCaptionTextProperty().SetBackgroundOpacity(0.0)
+        caption.BorderOff()
+        caption.LeaderOff()
+        caption.ThreeDimensionalLeaderOff()
+        caption.SetWidth(0.18)
+        caption.SetHeight(0.10)
+        arrow.AddPart(caption)
+        return arrow
+
+    @staticmethod
+    def _configure_orientation_axis(
+        axes: Any,
+        axis_index: int,
+        origin: tuple[float, float, float],
+    ) -> Any:
+        """Compatibility wrapper for callers that still expect an axes actor."""
+
+        axes.SetOrigin(0.0, 0.0, 0.0)
+        axes.SetPosition(*origin)
+        lengths = [0.0, 0.0, 0.0]
+        lengths[axis_index] = VIEWPORT_ORIENTATION_AXIS_LENGTH
+        axes.SetTotalLength(*lengths)
         axes.SetNormalizedShaftLength(0.86, 0.86, 0.86)
         axes.SetNormalizedTipLength(
             VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
@@ -467,43 +581,6 @@ class Viewport3D(QWidget):
         axes.SetConeRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
         axes.SetShaftTypeToLine()
         axes.SetTipTypeToCone()
-        # Keep the captions attached to the 3D arrow tips so they follow
-        # the ViewCube during rotation instead of floating beside it.
-        axes.SetAxisLabels(True)
-        axes.SetXAxisLabelText("X")
-        axes.SetYAxisLabelText("Y")
-        axes.SetZAxisLabelText("Z")
-        axes.SetNormalizedLabelPosition(1.04, 1.04, 1.04)
-        axis_colors = (
-            (1.0, 0.0, 0.0),
-            (0.0, 1.0, 0.0),
-            (0.0, 0.0, 1.0),
-        )
-        captions = (
-            axes.GetXAxisCaptionActor2D(),
-            axes.GetYAxisCaptionActor2D(),
-            axes.GetZAxisCaptionActor2D(),
-        )
-        shafts = (
-            axes.GetXAxisShaftProperty(),
-            axes.GetYAxisShaftProperty(),
-            axes.GetZAxisShaftProperty(),
-        )
-        tips = (
-            axes.GetXAxisTipProperty(),
-            axes.GetYAxisTipProperty(),
-            axes.GetZAxisTipProperty(),
-        )
-        for color, caption, shaft, tip in zip(axis_colors, captions, shafts, tips):
-            caption.GetCaptionTextProperty().SetColor(*color)
-            caption.GetCaptionTextProperty().SetBold(True)
-            caption.BorderOff()
-            caption.LeaderOff()
-            shaft.SetColor(*color)
-            shaft.SetLineWidth(VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
-            shaft.SetLighting(False)
-            tip.SetColor(*color)
-            tip.SetLighting(False)
         return axes
 
     def _orientation_screen_rect(self) -> QRect | None:

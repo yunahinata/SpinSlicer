@@ -5,8 +5,11 @@ import trimesh.transformations as tf
 import vtk
 
 from constants import (
+    VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION,
+    VIEWPORT_ORIENTATION_AXIS_LENGTH,
     VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH,
-    VIEWPORT_ORIENTATION_AXIS_ORIGIN,
+    VIEWPORT_ORIENTATION_AXIS_ORIGINS,
+    VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
 )
 from viewport import (
@@ -19,20 +22,63 @@ from viewport import (
 )
 
 
-def test_orientation_arrows_start_at_the_scaled_cube_corner() -> None:
-    expected_corner = np.full(3, 0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE)
+def test_orientation_arrows_start_at_distinct_scaled_cube_vertices() -> None:
+    half = 0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE
+    expected_vertices = (
+        (half, -half, -half),
+        (-half, half, -half),
+        (-half, -half, half),
+    )
 
-    assert np.allclose(VIEWPORT_ORIENTATION_AXIS_ORIGIN, expected_corner)
+    assert np.allclose(VIEWPORT_ORIENTATION_AXIS_ORIGINS, expected_vertices)
 
 
 def test_orientation_arrows_match_the_reference_style() -> None:
-    axes = Viewport3D._configure_orientation_axes(vtk.vtkAxesActor())
+    arrow = Viewport3D._create_orientation_arrow(
+        axis_index=0,
+        origin=VIEWPORT_ORIENTATION_AXIS_ORIGINS[0],
+        direction=(1.0, 0.0, 0.0),
+        color=(1.0, 0.0, 0.0),
+        label="X",
+    )
+    parts = arrow.GetParts()
+    line_actor = parts.GetItemAsObject(0)
+    line_source = line_actor.GetMapper().GetInputConnection(0, 0).GetProducer()
+    expected_shaft_end = (
+        VIEWPORT_ORIENTATION_AXIS_ORIGINS[0][0]
+        + VIEWPORT_ORIENTATION_AXIS_LENGTH
+        * (1.0 - VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH),
+        VIEWPORT_ORIENTATION_AXIS_ORIGINS[0][1],
+        VIEWPORT_ORIENTATION_AXIS_ORIGINS[0][2],
+    )
 
-    assert axes.GetShaftType() == vtk.vtkAxesActor.LINE_SHAFT
-    assert np.isclose(axes.GetXAxisShaftProperty().GetLineWidth(), VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
-    assert np.allclose(axes.GetXAxisShaftProperty().GetColor(), (1.0, 0.0, 0.0))
-    assert np.allclose(axes.GetYAxisShaftProperty().GetColor(), (0.0, 1.0, 0.0))
-    assert np.allclose(axes.GetZAxisShaftProperty().GetColor(), (0.0, 0.0, 1.0))
+    assert parts.GetNumberOfItems() == 3
+    assert np.allclose(line_source.GetPoint1(), VIEWPORT_ORIENTATION_AXIS_ORIGINS[0])
+    assert np.allclose(line_source.GetPoint2(), expected_shaft_end)
+    assert np.isclose(line_actor.GetProperty().GetLineWidth(), VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
+    cone_actor = parts.GetItemAsObject(1)
+    cone_source = cone_actor.GetMapper().GetInputConnection(0, 0).GetProducer()
+    assert cone_source.GetResolution() == VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION
+    caption = parts.GetItemAsObject(2)
+    assert caption.GetCaption() == "X"
+    assert caption.GetCaptionTextProperty().GetShadow() == 0
+
+
+def test_every_orientation_arrow_line_starts_at_its_cube_vertex() -> None:
+    arrows = Viewport3D._create_orientation_axes().GetParts()
+
+    for index, expected_origin in enumerate(VIEWPORT_ORIENTATION_AXIS_ORIGINS):
+        arrow = arrows.GetItemAsObject(index).GetParts()
+        line_actor = arrow.GetItemAsObject(0)
+        line_source = line_actor.GetMapper().GetInputConnection(0, 0).GetProducer()
+
+        assert np.allclose(line_source.GetPoint1(), expected_origin)
+
+
+def test_orientation_cube_disables_face_text_edges() -> None:
+    cube = Viewport3D._configure_orientation_cube(vtk.vtkAnnotatedCubeActor())
+
+    assert cube.GetTextEdgesVisibility() == 0
 
 
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:
