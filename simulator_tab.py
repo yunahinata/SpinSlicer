@@ -35,6 +35,7 @@ DEFAULT_THRESHOLD_PCT = 50.0
 class SimulatorTab(QWidget):
     progress = pyqtSignal(float, str)
     logMessage = pyqtSignal(str)
+    reconstructionReady = pyqtSignal(object)
 
     def __init__(
         self,
@@ -137,6 +138,7 @@ class SimulatorTab(QWidget):
         self.logMessage.emit(
             f"Volume reconstructed: grid {result.grid_res}×{result.grid_res}×{result.nz}."
         )
+        self.reconstructionReady.emit(result)
         self._apply_threshold()
 
     def _on_reconstruction_failed(self, msg: str) -> None:

@@ -2,27 +2,69 @@
 
 Главное окно — тонкая оболочка над вкладками приложения:
 
-  1. "🧊 Слайсер"         — генерация проекций (slicer_tab.SlicerTab).
+  1. "🧊 Слайсер"         — загрузка модели и генерация проекций
+                              (slicer_tab.SlicerTab).
   2. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
                               (video_tab.ProjectorTab).
-  3. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
-                              (simulator_tab.SimulatorTab).
+  3. "🧪 Симуляция"        — оптический стенд и реконструкция результата.
   4. "Настройки"          — параметры принтера, процесса и VAMToolbox.
 
 Статус-бар и лог общие для всего приложения. Прогресс-бар показывается
-только на главной вкладке "Слайсер".
+на вкладках, которые выполняют расчёты.
 
 
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (
+from qt_runtime import configure_qt_dll_search_path
+
+
+def _relaunch_with_project_python() -> None:
+    """Restart source execution with the project's isolated interpreter."""
+
+    if getattr(sys, "frozen", False):
+        return
+
+    project_root = Path(__file__).resolve().parent
+    project_python = project_root / ".venv" / "Scripts" / "python.exe"
+    if Path(sys.executable).name.casefold() == "pythonw.exe":
+        project_python = project_python.with_name("pythonw.exe")
+    if not project_python.is_file():
+        return
+
+    try:
+        current_python = Path(sys.executable).resolve()
+        project_python = project_python.resolve()
+    except OSError:
+        return
+
+    if current_python == project_python:
+        return
+
+    environment = os.environ.copy()
+    environment["SPINSLICER_PROJECT_PYTHON"] = "1"
+    completed = subprocess.run(
+        [str(project_python), *sys.argv],
+        cwd=str(project_root),
+        env=environment,
+        check=False,
+    )
+    raise SystemExit(completed.returncode)
+
+
+_relaunch_with_project_python()
+
+configure_qt_dll_search_path()
+
+from PyQt6.QtCore import QSettings  # noqa: E402
+from PyQt6.QtGui import QIcon  # noqa: E402
+from PyQt6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
     QHBoxLayout,
@@ -36,7 +78,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from constants import (
+from constants import (  # noqa: E402
     ACCENT_GREEN,
     ACCENT_GREEN_HOVER,
     APP_ORG,
@@ -44,12 +86,12 @@ from constants import (
     BUTTON_RADIUS,
     PANEL_RADIUS,
 )
-from i18n import LANGUAGES, apply_translations, language, set_language, tr
-from job_controller import JobController
-from simulator_tab import SimulatorTab
-from slicer_tab import SlicerTab
-from ui_panels import ProcessSettingsPanel
-from video_tab import ProjectorTab
+from i18n import LANGUAGES, apply_translations, language, set_language, tr  # noqa: E402
+from job_controller import JobController  # noqa: E402
+from simulation_workbench_tab import SimulationWorkbenchTab  # noqa: E402
+from slicer_tab import SlicerTab  # noqa: E402
+from ui_panels import ProcessSettingsPanel  # noqa: E402
+from video_tab import ProjectorTab  # noqa: E402
 
 
 def resource_path(relative_path: str) -> str:
@@ -204,16 +246,24 @@ class CALSlicerMainWindow(QMainWindow):
             process_panel=self.settings_tab,
         )
         self.projector_tab = ProjectorTab(job_controller=self._job_controller)
-        self.simulator_tab = SimulatorTab(job_controller=self._job_controller)
+        self.simulation_tab = SimulationWorkbenchTab(
+            job_controller=self._job_controller,
+            process_panel=self.settings_tab,
+        )
+        # Compatibility alias for integrations that referred to the combined
+        # simulation workspace as ``workbench``.
+        self.workbench = self.simulation_tab
+        self.optical_tab = self.simulation_tab.optical_tab
+        self.simulator_tab = self.simulation_tab.simulator_tab
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
-        self.tabs.addTab(self.simulator_tab, "🔬 Симулятор")
+        self.tabs.addTab(self.simulation_tab, "🧪 Симуляция")
         self.tabs.addTab(self.settings_tab, "Настройки")
 
-        self.tabs.setTabToolTip(0, "Настройка модели и генерация проекций")
+        self.tabs.setTabToolTip(0, "Загрузка STL, настройка модели и генерация проекций")
         self.tabs.setTabToolTip(1, "Проигрывание и экспорт готовых кадров в MP4")
-        self.tabs.setTabToolTip(2, "Обратная реконструкция геометрии по кадрам")
+        self.tabs.setTabToolTip(2, "Оптический расчёт и обратная реконструкция по кадрам")
         self.tabs.setTabToolTip(3, "Настройки принтера, процесса и альтернативного движка")
 
         root.addWidget(self.tabs, 1)
@@ -241,23 +291,28 @@ class CALSlicerMainWindow(QMainWindow):
 
     def _wire_signals(self) -> None:
         # Прогресс и лог рабочих вкладок стекаются в общий статус-бар/лог.
-        for tab in (self.slicer_tab, self.projector_tab, self.simulator_tab):
+        for tab in (self.slicer_tab, self.projector_tab, self.simulation_tab):
             tab.progress.connect(self._set_progress)
             tab.logMessage.connect(self._log)
 
-        # Как только "Слайсер" досчитал кадры — "Проектор" и "Симулятор"
-        # сразу узнают, где их искать, без ручного выбора папки.
+        # Слайсер остаётся самостоятельной вкладкой, но передаёт готовые
+        # кадры проектору и объединённой вкладке симуляции автоматически.
+        self.slicer_tab.modelLoaded.connect(self.simulation_tab.set_model_path)
         self.slicer_tab.outputGenerated.connect(self.projector_tab.set_output_dir)
-        self.slicer_tab.outputGenerated.connect(self.simulator_tab.set_output_dir)
+        self.slicer_tab.outputGenerated.connect(self.simulation_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self._on_output_generated)
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._on_tab_changed(self.tabs.currentIndex())
 
     def _on_tab_changed(self, index: int) -> None:
-        """Show the progress indicator only on the main Slicer tab."""
+        """Show progress while working on the slicer or simulation tabs."""
 
-        self._progress_bar.setVisible(index == self.tabs.indexOf(self.slicer_tab))
+        active_tabs = {
+            self.tabs.indexOf(self.slicer_tab),
+            self.tabs.indexOf(self.simulation_tab),
+        }
+        self._progress_bar.setVisible(index in active_tabs)
 
     def _on_language_changed(self, index: int) -> None:
         selected = self.language_combo.itemData(index)
@@ -269,9 +324,12 @@ class CALSlicerMainWindow(QMainWindow):
         self._log(tr("Язык изменён") + ". " + tr("Перезапустите приложение, чтобы применить язык."))
 
     def _on_output_generated(self, out_dir: str) -> None:
-        # Мягкая подсказка: переключаем пользователя на следующий логичный
-        # шаг, не мешая — если он уже сам открыл другую вкладку, не трогаем.
-        if self.tabs.currentIndex() == 0:
+        # Мягкая подсказка: если пользователь уже работает со слайсером или
+        # симуляцией, сохраняем путь в подсказке вкладки видео.
+        if self.tabs.currentIndex() in {
+            self.tabs.indexOf(self.slicer_tab),
+            self.tabs.indexOf(self.simulation_tab),
+        }:
             projector_index = self.tabs.indexOf(self.projector_tab)
             self.tabs.setTabToolTip(projector_index, f"Кадры готовы: {out_dir}")
 

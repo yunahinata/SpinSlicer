@@ -16,9 +16,18 @@ reconstruction preview.
 The application is intentionally a simulation and projection-preparation tool:
 it does not drive a real projector, resin vat, or rotation stage.
 
+The optical bench is currently a fast, calibrated 2-D meridional slice. It is
+intended for choosing tank/vat dimensions, refractive indices, projector
+distance, and field of view before a material test. It does not yet model a
+real projector lens distortion, wavelength-dependent scattering, or the full
+azimuth-dependent 3-D rotation path.
+
 ## Features
 
 - Load and transform STL models in physical millimetres.
+- Use separate **Slicer**, **Projector (Video)**, and **Simulation** tabs. The
+  Slicer generates projection frames, while Simulation combines the optical
+  bench with inverse reconstruction and receives the frames automatically.
 - Keep printer and process parameters on a dedicated Settings tab.
 - Edit the model in a full-width 3D viewport with a visible vat bottom plane
   and an interactive Fusion-style view cube.
@@ -29,6 +38,12 @@ it does not drive a real projector, resin vat, or rotation stage.
 - Preserve internal bores and thread relief in loaded STL models by default.
 - Preview generated frames as a rotating video and export them to MP4.
 - Reconstruct an approximate 3D volume with filtered back-projection (FBP).
+- Tune an optical bench before using material: trace refraction through the
+  cylindrical vat and an optional square water-filled compensator, including
+  Fresnel losses, absorption, finite aperture, and total internal reflection.
+- Compare a generated projection frame with and without the water compensator
+  on the central optical slice and inspect ray paths, coverage, transmission,
+  and geometric mapping error.
 - Keep every completed run in its own directory with validated metadata and a
   manifest; incomplete runs are not published to the player or simulator.
 - Store provisional machine/resin profiles and a deterministic frame schedule
@@ -57,8 +72,16 @@ uses `opencv-python-headless`.
 Run the application with:
 
 ```bash
-python SpinSlicer.py
+# Windows: always use the project environment
+run_spinslicer.cmd
+
+# Or explicitly:
+.venv\Scripts\python.exe SpinSlicer.py
 ```
+
+The ready-to-run Windows executable is `dist/SpinSlicer.exe`. Do not start the
+source file with a different global Python installation: PyQt6 must be loaded
+with the Qt DLLs from the same environment.
 
 ## Threaded STL models
 
@@ -121,12 +144,15 @@ player or simulator can consume a run. Legacy flat folders containing
 | `SpinSlicer.py` | Main window, language selector, shared status bar, and log. |
 | `assets/spinslicer.svg` | Application icon used by the desktop UI and packages. |
 | `slicer_tab.py` | STL loading, transformation, and projection generation UI. |
+| `simulation_workbench_tab.py` | Combined optical bench and inverse reconstruction workspace. |
 | `nut_dialog.py` | Legacy threaded-nut dialog kept for API compatibility. |
 | `threaded_nut.py` | Legacy parametric nut generator kept for API compatibility. |
 | `ui_panels.py` | Printer/process settings and compact model transform controls. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |
 | `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |
+| `optical_simulation.py` | Qt-free Snell/Fresnel ray tracing through the vat and water compensator. |
+| `optical_tab.py` | Interactive optical-bench controls, ray diagram, and projection comparison. |
 | `video_tab.py` | Frame playback and MP4 export. |
 | `frame_io.py` | Validated frame-set storage, metadata, and manifests. |
 | `profiles.py` | Validated machine and resin profiles for offline and real jobs. |

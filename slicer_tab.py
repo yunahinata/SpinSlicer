@@ -51,6 +51,8 @@ def open_local_directory(target: str) -> bool:
 class SlicerTab(QWidget):
     progress = pyqtSignal(float, str)
     logMessage = pyqtSignal(str)
+    modelLoaded = pyqtSignal(str)
+    generationStateChanged = pyqtSignal(bool)
     # Сигнализирует другим вкладкам ("Проектор", "Симулятор"), в какой папке
     # появились свежие кадры — чтобы не заставлять пользователя каждый раз
     # указывать её вручную.
@@ -170,6 +172,7 @@ class SlicerTab(QWidget):
         self._transform_toolbar.set_enabled_state(True)
 
         self.progress.emit(1.0, "Модель загружена.")
+        self.modelLoaded.emit(path)
         self.logMessage.emit(
             f"Загружено: {os.path.basename(path)} "
             f"({node.vertex_count:,} верш., {node.face_count:,} гран.)"
@@ -253,6 +256,23 @@ class SlicerTab(QWidget):
     # =======================================================================
     # Генерация проекций
     # =======================================================================
+    @property
+    def has_model(self) -> bool:
+        """Whether a mesh is ready for projection generation."""
+
+        return self._model_node is not None
+
+    @property
+    def is_generation_running(self) -> bool:
+        """Whether the background projection worker is currently active."""
+
+        return self._gen_worker is not None and self._gen_worker.isRunning()
+
+    def start_generation(self) -> None:
+        """Start or cancel generation from a parent workflow controller."""
+
+        self._on_generate_clicked()
+
     def _on_generate_clicked(self) -> None:
         if self._gen_worker is not None and self._gen_worker.isRunning():
             self._gen_worker.request_cancel()
@@ -334,6 +354,7 @@ class SlicerTab(QWidget):
         self.load_btn.setEnabled(False)
         self.logMessage.emit("Запуск генерации проекций...")
         self._gen_worker.start()
+        self.generationStateChanged.emit(True)
 
     def _on_generation_progress(self, frac: float, msg: str) -> None:
         self.progress.emit(frac, msg)
@@ -358,6 +379,7 @@ class SlicerTab(QWidget):
         self.generate_btn.setEnabled(True)
         self.generate_btn.setText("▶ Generate projections")
         self.load_btn.setEnabled(True)
+        self.generationStateChanged.emit(False)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (имя метода задано Qt)
         if self._job_controller.shutdown():
