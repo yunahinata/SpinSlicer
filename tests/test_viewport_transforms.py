@@ -3,6 +3,10 @@ from __future__ import annotations
 import numpy as np
 import trimesh.transformations as tf
 
+from constants import (
+    VIEWPORT_ORIENTATION_AXIS_ORIGIN,
+    VIEWPORT_ORIENTATION_CUBE_SCALE,
+)
 from viewport import (
     _camera_up_vector,
     _interpolate_camera_pose,
@@ -10,6 +14,12 @@ from viewport import (
     _slerp_unit_vectors,
     _transformed_bounds,
 )
+
+
+def test_orientation_arrows_start_at_the_scaled_cube_corner() -> None:
+    expected_corner = np.full(3, 0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE)
+
+    assert np.allclose(VIEWPORT_ORIENTATION_AXIS_ORIGIN, expected_corner)
 
 
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:

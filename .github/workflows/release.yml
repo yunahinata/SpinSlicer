@@ -208,6 +208,7 @@ jobs:
             - Removed post-release camera inertia so rotation stops with the pointer without overshoot.
             - Matched the reference cube labels and external XYZ colors without adding Home or down controls.
             - Anchored the XYZ arrows to the continuation of the cube edges and removed horizontal drag inversion.
+            - Made the edge-continuation arrows longer, solid, and slightly thicker.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

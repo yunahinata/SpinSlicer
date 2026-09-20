@@ -44,6 +44,7 @@ from constants import (
     VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS,
     VIEWPORT_ORIENTATION_AXIS_LENGTH,
     VIEWPORT_ORIENTATION_AXIS_ORIGIN,
+    VIEWPORT_ORIENTATION_AXIS_SHAFT_RADIUS,
     VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
     VIEWPORT_ORIENTATION_DRAG_SENSITIVITY,
@@ -410,15 +411,17 @@ class Viewport3D(QWidget):
                 VIEWPORT_ORIENTATION_AXIS_LENGTH,
                 VIEWPORT_ORIENTATION_AXIS_LENGTH,
             )
-            axes.SetNormalizedShaftLength(0.72, 0.72, 0.72)
+            # Match the shaft to the cone base so the edge continuation stays
+            # solid instead of leaving a visible gap before the arrowhead.
+            axes.SetNormalizedShaftLength(0.86, 0.86, 0.86)
             axes.SetNormalizedTipLength(
                 VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
                 VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
                 VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
             )
             axes.SetConeRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
-            axes.SetCylinderRadius(0.07)
-            axes.SetShaftTypeToLine()
+            axes.SetCylinderRadius(VIEWPORT_ORIENTATION_AXIS_SHAFT_RADIUS)
+            axes.SetShaftTypeToCylinder()
             axes.SetTipTypeToCone()
             # Keep the captions attached to the 3D arrow tips so they follow
             # the ViewCube during rotation instead of floating beside it.
