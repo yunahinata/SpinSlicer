@@ -206,6 +206,7 @@ jobs:
             - Reduced the orientation arrowheads and moved the axis origin to the cube edge.
             - Shifted the ViewCube slightly left within the viewport.
             - Removed post-release camera inertia so rotation stops with the pointer without overshoot.
+            - Matched the reference cube labels and external XYZ colors without adding Home or down controls.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
