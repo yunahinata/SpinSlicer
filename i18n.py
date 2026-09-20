@@ -89,9 +89,6 @@ _EN: dict[str, str] = {
         "Ready. Load an STL model on the Slicer tab to begin.",
     "Папка кадров не выбрана — сначала сгенерируйте проекции на вкладке «Слайсер».":
         "No frame folder selected — generate projections on the Slicer tab first.",
-    "Обзор папки...": "Browse folder...",
-    "Указать папку с кадрами frame_XXXX.png вручную":
-        "Choose a folder containing frame_XXXX.png files manually",
     "Нажмите «Собрать и воспроизвести»,\nчтобы увидеть анимацию проекций.":
         "Click “Assemble and play”\nto preview the projection animation.",
     "▶ Собрать и воспроизвести": "▶ Assemble and play",
@@ -123,7 +120,6 @@ _EN: dict[str, str] = {
     "Сначала загрузите STL-модель.": "Load an STL model first.",
     "Выбрать STL": "Choose an STL file",
     "STL файлы (*.stl)": "STL files (*.stl)",
-    "Выбрать папку с кадрами": "Choose a frame folder",
     "Успех": "Success",
     "Ошибка": "Error",
     "Внимание": "Warning",

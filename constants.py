@@ -51,7 +51,13 @@ VAT_RESOLUTION = 96
 VIEWPORT_WORKPLANE_SPAN_RATIO = 3.0
 VIEWPORT_WORKPLANE_MIN_SPAN_MM = 120.0
 VIEWPORT_WORKPLANE_RESOLUTION = 32
-VIEWPORT_ORIENTATION_WIDGET_SIZE = 92
+VIEWPORT_ORIENTATION_WIDGET_SIZE = 128
+# Normalized VTK viewport for the custom ViewCube: upper-left, with enough
+# room for the axis tips and labels to sit on the cube's outer faces.
+VIEWPORT_ORIENTATION_VIEWPORT = (0.005, 0.70, 0.22, 0.995)
+VIEWPORT_ORIENTATION_CUBE_SCALE = 1.18
+VIEWPORT_ORIENTATION_AXIS_LENGTH = 0.90
+VIEWPORT_ORIENTATION_DRAG_SENSITIVITY = 0.70
 
 # Децимация полигонов — только для показа во вьюпорте (60 FPS на тяжёлых STL).
 # На расчёт проекций это не влияет: генерация всегда использует исходный меш.

@@ -3,7 +3,13 @@ from __future__ import annotations
 import numpy as np
 import trimesh.transformations as tf
 
-from viewport import _camera_up_vector, _scale_matrix_from_box, _transformed_bounds
+from viewport import (
+    _camera_up_vector,
+    _interpolate_camera_pose,
+    _scale_matrix_from_box,
+    _slerp_unit_vectors,
+    _transformed_bounds,
+)
 
 
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:
@@ -20,6 +26,40 @@ def test_camera_up_vector_uses_stable_fallback_when_looking_along_z() -> None:
     up = _camera_up_vector(np.array([0.0, 0.0, -1.0]))
 
     assert np.allclose(up, [0.0, 1.0, 0.0])
+
+
+def test_camera_slerp_follows_a_smooth_shortest_arc() -> None:
+    halfway = _slerp_unit_vectors(
+        np.array([1.0, 0.0, 0.0]),
+        np.array([0.0, 1.0, 0.0]),
+        0.5,
+    )
+
+    assert np.allclose(halfway, np.array([1.0, 1.0, 0.0]) / np.sqrt(2.0))
+    assert np.isclose(np.linalg.norm(halfway), 1.0)
+
+
+def test_camera_pose_interpolation_keeps_an_orbit_radius() -> None:
+    start = (
+        np.array([10.0, 0.0, 0.0]),
+        np.zeros(3),
+        np.array([0.0, 0.0, 1.0]),
+        12.0,
+    )
+    target = (
+        np.array([0.0, 10.0, 0.0]),
+        np.zeros(3),
+        np.array([0.0, 0.0, 1.0]),
+        20.0,
+    )
+
+    position, focal_point, up, parallel_scale = _interpolate_camera_pose(start, target, 0.5)
+
+    assert np.allclose(focal_point, np.zeros(3))
+    assert np.isclose(np.linalg.norm(position - focal_point), 10.0)
+    assert np.allclose(position, np.array([1.0, 1.0, 0.0]) * (10.0 / np.sqrt(2.0)))
+    assert np.allclose(up, np.array([0.0, 0.0, 1.0]))
+    assert np.isclose(parallel_scale, 16.0)
 
 
 def test_transformed_bounds_follow_model_matrix() -> None:

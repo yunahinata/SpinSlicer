@@ -101,16 +101,9 @@ class ProjectorTab(QWidget):
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
 
-        dir_row = QHBoxLayout()
         self.dir_label = QLabel("Папка кадров не выбрана — сначала сгенерируйте проекции на вкладке «Слайсер».")
         self.dir_label.setObjectName("hintLabel")
-        dir_row.addWidget(self.dir_label, 1)
-
-        self.browse_btn = QPushButton("Обзор папки...")
-        self.browse_btn.setToolTip("Указать папку с кадрами frame_XXXX.png вручную")
-        self.browse_btn.clicked.connect(self._on_browse_clicked)
-        dir_row.addWidget(self.browse_btn)
-        root.addLayout(dir_row)
+        root.addWidget(self.dir_label)
 
         self.preview = VideoPreviewWidget("Нажмите «Собрать и воспроизвести»,\nчтобы увидеть анимацию проекций.")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -155,12 +148,6 @@ class ProjectorTab(QWidget):
             self.preview.clear_frame()
         self._output_dir = path
         self.dir_label.setText(f"{tr('Папка кадров: ')}{path}")
-
-    def _on_browse_clicked(self) -> None:
-        start_dir = self._output_dir or os.getcwd()
-        path = QFileDialog.getExistingDirectory(self, tr("Выбрать папку с кадрами"), start_dir)
-        if path:
-            self.set_output_dir(path)
 
     # --- сборка и проигрывание ---------------------------------------------------
     def _on_assemble_clicked(self) -> None:

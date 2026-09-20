@@ -187,10 +187,12 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `Build release artifacts` workflow then attaches five files to the GitHub
+The `Build release artifacts` workflow then attaches six files to the GitHub
 Release:
 
 - `SpinSlicer-windows-x64.zip` — contains `SpinSlicer.exe` for 64-bit Windows;
+- `SpinSlicer-Setup-<version>.exe` — per-user Windows installer with Start Menu
+  and optional desktop shortcuts;
 - `SpinSlicer.exe` — standalone Windows executable;
 - `SpinSlicer-linux-x64.tar.gz` — contains the portable 64-bit Linux executable;
 - `SpinSlicer-<version>-amd64.deb` — Debian/Ubuntu package;

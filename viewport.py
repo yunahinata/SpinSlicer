@@ -21,6 +21,8 @@ viewport.py
 """
 from __future__ import annotations
 
+import math
+import time
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -28,7 +30,7 @@ import pyvista as pv
 import trimesh
 import trimesh.transformations as tf
 import vtk
-from PyQt6.QtCore import QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QEvent, QRect, Qt, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
@@ -40,11 +42,17 @@ from constants import (
     VAT_RESOLUTION,
     VIEWPORT_BG_BOTTOM,
     VIEWPORT_BG_TOP,
+    VIEWPORT_ORIENTATION_AXIS_LENGTH,
+    VIEWPORT_ORIENTATION_CUBE_SCALE,
+    VIEWPORT_ORIENTATION_DRAG_SENSITIVITY,
+    VIEWPORT_ORIENTATION_VIEWPORT,
     VIEWPORT_ORIENTATION_WIDGET_SIZE,
     VIEWPORT_WORKPLANE_MIN_SPAN_MM,
     VIEWPORT_WORKPLANE_RESOLUTION,
     VIEWPORT_WORKPLANE_SPAN_RATIO,
 )
+
+CameraPose = tuple[np.ndarray, np.ndarray, np.ndarray, float]
 
 
 def _trimesh_to_pyvista(mesh: trimesh.Trimesh) -> pv.PolyData:
@@ -149,6 +157,102 @@ def _camera_up_vector(direction: np.ndarray) -> np.ndarray:
     return up / up_length
 
 
+def _slerp_unit_vectors(
+    start: np.ndarray,
+    target: np.ndarray,
+    progress: float,
+) -> np.ndarray:
+    """Interpolate two unit vectors along the shortest spherical path."""
+
+    start_vector = np.asarray(start, dtype=np.float64)
+    target_vector = np.asarray(target, dtype=np.float64)
+    if (
+        start_vector.shape != (3,)
+        or target_vector.shape != (3,)
+        or not np.all(np.isfinite(start_vector))
+        or not np.all(np.isfinite(target_vector))
+    ):
+        raise ValueError("Expected two finite 3D vectors.")
+
+    start_length = float(np.linalg.norm(start_vector))
+    target_length = float(np.linalg.norm(target_vector))
+    if start_length <= 1e-9 or target_length <= 1e-9:
+        raise ValueError("Cannot interpolate a zero-length vector.")
+    start_vector = start_vector / start_length
+    target_vector = target_vector / target_length
+
+    fraction = float(np.clip(progress, 0.0, 1.0))
+    dot = float(np.clip(np.dot(start_vector, target_vector), -1.0, 1.0))
+    if dot > 0.9995:
+        result = start_vector + (target_vector - start_vector) * fraction
+        return result / max(float(np.linalg.norm(result)), 1e-12)
+
+    if dot < -0.9995:
+        # The shortest path is ambiguous for opposite vectors. Choose a stable
+        # plane using the basis axis least aligned with the start direction.
+        basis = np.zeros(3, dtype=np.float64)
+        basis[int(np.argmin(np.abs(start_vector)))] = 1.0
+        axis = np.cross(start_vector, basis)
+        axis /= max(float(np.linalg.norm(axis)), 1e-12)
+        angle = math.pi * fraction
+        result = start_vector * math.cos(angle) + axis * math.sin(angle)
+        return result / max(float(np.linalg.norm(result)), 1e-12)
+
+    angle = math.acos(dot)
+    sine = math.sin(angle)
+    start_weight = math.sin((1.0 - fraction) * angle) / sine
+    target_weight = math.sin(fraction * angle) / sine
+    result = start_vector * start_weight + target_vector * target_weight
+    return result / max(float(np.linalg.norm(result)), 1e-12)
+
+
+def _interpolate_camera_pose(
+    start: CameraPose,
+    target: CameraPose,
+    progress: float,
+) -> CameraPose:
+    """Interpolate camera position while preserving a natural orbit arc."""
+
+    start_position, start_focal, _start_up, start_scale = start
+    target_position, target_focal, _target_up, target_scale = target
+    start_position = np.asarray(start_position, dtype=np.float64)
+    start_focal = np.asarray(start_focal, dtype=np.float64)
+    target_position = np.asarray(target_position, dtype=np.float64)
+    target_focal = np.asarray(target_focal, dtype=np.float64)
+    if any(
+        value.shape != (3,) or not np.all(np.isfinite(value))
+        for value in (start_position, start_focal, target_position, target_focal)
+    ):
+        raise ValueError("Camera positions and focal points must be finite 3D vectors.")
+
+    fraction = float(np.clip(progress, 0.0, 1.0))
+    start_offset = start_position - start_focal
+    target_offset = target_position - target_focal
+    start_distance = float(np.linalg.norm(start_offset))
+    target_distance = float(np.linalg.norm(target_offset))
+    if start_distance <= 1e-9 or target_distance <= 1e-9:
+        raise ValueError("Camera position must differ from its focal point.")
+
+    offset_direction = _slerp_unit_vectors(
+        start_offset / start_distance,
+        target_offset / target_distance,
+        fraction,
+    )
+    focal_point = start_focal + (target_focal - start_focal) * fraction
+    distance = start_distance + (target_distance - start_distance) * fraction
+    position = focal_point + offset_direction * distance
+    up = _camera_up_vector(focal_point - position)
+
+    start_scale = float(start_scale)
+    target_scale = float(target_scale)
+    if not math.isfinite(start_scale) or start_scale <= 0.0:
+        start_scale = 1.0
+    if not math.isfinite(target_scale) or target_scale <= 0.0:
+        target_scale = start_scale
+    parallel_scale = start_scale + (target_scale - start_scale) * fraction
+    return position, focal_point, up, parallel_scale
+
+
 def _scale_matrix_from_box(
     candidate: np.ndarray,
     baseline: np.ndarray,
@@ -243,25 +347,39 @@ class Viewport3D(QWidget):
         self._orientation_axes: Any = None
         self._orientation_assembly: Any = None
         self._orientation_widget: Any = None
+        self._orientation_marker_uses_custom_drag = False
+        self._orientation_dragging = False
+        self._orientation_drag_last: tuple[float, float] | None = None
         self._affine_enabled = False
         self._transform_mode = "move"
         self._uniform_scale = True
         self._current_diameter = 0.0
         self._model_bounds: np.ndarray | None = None
         self._matrix_animation: QVariantAnimation | None = None
+        self._camera_animation: QVariantAnimation | None = None
+        self._camera_inertia_timer = QTimer(self)
+        self._camera_inertia_timer.setInterval(16)
+        self._camera_inertia_timer.timeout.connect(self._advance_camera_inertia)
+        self._camera_interaction_active = False
+        self._camera_last_orbit_angles: tuple[float, float] | None = None
+        self._camera_last_sample_time = 0.0
+        self._camera_inertia_last_time = 0.0
+        self._camera_velocity_azimuth = 0.0
+        self._camera_velocity_elevation = 0.0
         self._affine_capture_pending = False
         self._pending_affine_start: np.ndarray | None = None
         self._scale_interaction_start_matrix: np.ndarray | None = None
         self._navigation_style: Any = None
         self._scale_handle_actors: list[Any] = []
 
+        self.plotter.interactor.installEventFilter(self)
         self._install_navigation_style()
         self._create_orientation_cube(plotter)
 
         self._reset_camera_view()
 
     def _create_orientation_cube(self, plotter: Any) -> None:
-        """Create the compact, non-transformable CAD orientation cube."""
+        """Create the draggable CAD ViewCube and its face-aligned axes."""
 
         try:
             interactor = self._vtk_interactor(plotter)
@@ -274,10 +392,15 @@ class Viewport3D(QWidget):
             cube.SetYMinusFaceText("BACK")
             cube.SetZPlusFaceText("TOP")
             cube.SetZMinusFaceText("BOTTOM")
-            cube.SetFaceTextScale(0.14)
+            cube.SetFaceTextScale(0.17)
             cube.SetFaceTextVisibility(True)
             cube.SetTextEdgesVisibility(True)
             cube.SetCubeVisibility(True)
+            cube.SetScale(
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+            )
             cube.GetCubeProperty().SetColor(0.82, 0.84, 0.87)
             cube.GetTextEdgesProperty().SetColor(0.16, 0.19, 0.24)
             cube.GetXPlusFaceProperty().SetColor(0.91, 0.92, 0.94)
@@ -288,14 +411,23 @@ class Viewport3D(QWidget):
             cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
 
             axes = vtk.vtkAxesActor()
-            axes.SetTotalLength(0.85, 0.85, 0.85)
+            axes.SetOrigin(0.0, 0.0, 0.0)
+            axes.SetTotalLength(
+                VIEWPORT_ORIENTATION_AXIS_LENGTH,
+                VIEWPORT_ORIENTATION_AXIS_LENGTH,
+                VIEWPORT_ORIENTATION_AXIS_LENGTH,
+            )
+            axes.SetNormalizedShaftLength(0.72, 0.72, 0.72)
+            axes.SetNormalizedTipLength(0.28, 0.28, 0.28)
+            axes.SetConeRadius(0.50)
+            axes.SetCylinderRadius(0.07)
             axes.SetShaftTypeToLine()
             axes.SetTipTypeToCone()
             axes.SetAxisLabels(True)
             axes.SetXAxisLabelText("X")
             axes.SetYAxisLabelText("Y")
             axes.SetZAxisLabelText("Z")
-            axes.SetNormalizedLabelPosition(1.08, 1.08, 1.08)
+            axes.SetNormalizedLabelPosition(1.04, 1.04, 1.04)
             axis_colors = (
                 (0.94, 0.25, 0.22),
                 (0.35, 0.75, 0.38),
@@ -331,13 +463,14 @@ class Viewport3D(QWidget):
             orientation_widget = vtk.vtkOrientationMarkerWidget()
             orientation_widget.SetOrientationMarker(assembly)
             orientation_widget.SetInteractor(plotter.iren.interactor)
-            orientation_widget.SetViewport(0.02, 0.78, 0.16, 0.97)
+            orientation_widget.SetViewport(*VIEWPORT_ORIENTATION_VIEWPORT)
             orientation_widget.SetEnabled(1)
             orientation_widget.SetInteractive(0)
             self._orientation_cube = cube
             self._orientation_axes = axes
             self._orientation_assembly = assembly
             self._orientation_widget = orientation_widget
+            self._orientation_marker_uses_custom_drag = True
         except Exception:
             # Keep the scene usable with older VTK builds lacking the marker
             # widget. The native camera widget is the last-resort fallback.
@@ -355,11 +488,130 @@ class Viewport3D(QWidget):
                     representation.AnchorToUpperLeft()
                 self._orientation_cube = camera_widget.GetRepresentation()
                 self._orientation_widget = camera_widget
+                self._orientation_marker_uses_custom_drag = False
             except Exception:
                 self._orientation_cube = None
                 self._orientation_axes = None
                 self._orientation_assembly = None
                 self._orientation_widget = None
+                self._orientation_marker_uses_custom_drag = False
+
+    def _orientation_screen_rect(self) -> QRect | None:
+        """Return the screen rectangle occupied by the custom ViewCube."""
+
+        widget = self._orientation_widget
+        interactor = getattr(self.plotter, "interactor", None)
+        if (
+            not self._orientation_marker_uses_custom_drag
+            or widget is None
+            or interactor is None
+            or not widget.GetEnabled()
+        ):
+            return None
+
+        width = int(interactor.width())
+        height = int(interactor.height())
+        if width <= 0 or height <= 0:
+            return None
+
+        viewport = tuple(float(value) for value in widget.GetViewport())
+        if len(viewport) != 4 or not all(np.isfinite(value) for value in viewport):
+            return None
+        x_min, y_min, x_max, y_max = viewport
+        left = int(round(x_min * width))
+        right = int(round(x_max * width))
+        top = int(round((1.0 - y_max) * height))
+        bottom = int(round((1.0 - y_min) * height))
+        return QRect(left, top, max(right - left, 1), max(bottom - top, 1))
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 (Qt API name)
+        """Use the ViewCube as a dedicated camera-orbit handle.
+
+        The VTK orientation marker is intentionally non-interactive because its
+        built-in interaction only moves/resizes the marker.  Capturing the
+        marker's Qt rectangle lets a drag orbit the complete scene while
+        leaving model transform handles and normal viewport navigation intact.
+        """
+
+        if watched is self.plotter.interactor and self._orientation_marker_uses_custom_drag:
+            event_type = event.type()
+            if event_type == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    position = event.position()
+                    rect = self._orientation_screen_rect()
+                    if rect is not None and rect.contains(
+                        int(round(position.x())),
+                        int(round(position.y())),
+                    ):
+                        self._stop_camera_animation()
+                        self._stop_camera_inertia()
+                        self._orientation_dragging = True
+                        self._orientation_drag_last = (
+                            float(position.x()),
+                            float(position.y()),
+                        )
+                        self._on_camera_interaction_start()
+                        self.plotter.interactor.setCursor(Qt.CursorShape.ClosedHandCursor)
+                        try:
+                            self.plotter.interactor.grabMouse()
+                        except RuntimeError:
+                            pass
+                        return True
+
+            elif event_type == QEvent.Type.MouseMove:
+                position = event.position()
+                if self._orientation_dragging and self._orientation_drag_last is not None:
+                    previous_x, previous_y = self._orientation_drag_last
+                    dx = float(position.x()) - previous_x
+                    dy = float(position.y()) - previous_y
+                    self._orientation_drag_last = (
+                        float(position.x()),
+                        float(position.y()),
+                    )
+                    if dx or dy:
+                        self._rotate_camera_from_orientation_drag(dx, dy)
+                    return True
+
+                rect = self._orientation_screen_rect()
+                if rect is not None and rect.contains(
+                    int(round(position.x())),
+                    int(round(position.y())),
+                ):
+                    self.plotter.interactor.setCursor(Qt.CursorShape.OpenHandCursor)
+                else:
+                    self.plotter.interactor.unsetCursor()
+
+            elif event_type == QEvent.Type.MouseButtonRelease:
+                if (
+                    self._orientation_dragging
+                    and event.button() == Qt.MouseButton.LeftButton
+                ):
+                    self._finish_orientation_drag()
+                    return True
+
+        return super().eventFilter(watched, event)
+
+    def _finish_orientation_drag(self) -> None:
+        self._orientation_dragging = False
+        self._orientation_drag_last = None
+        self._on_camera_interaction_end()
+        try:
+            self.plotter.interactor.releaseMouse()
+        except RuntimeError:
+            pass
+        self.plotter.interactor.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def _rotate_camera_from_orientation_drag(self, dx: float, dy: float) -> None:
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            return
+        try:
+            camera.Azimuth(-dx * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
+            camera.Elevation(-dy * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
+            self._on_camera_interaction()
+            self._render_camera()
+        except (AttributeError, TypeError, ValueError):
+            return
 
     # --- камера --------------------------------------------------------------
     def _install_navigation_style(self) -> None:
@@ -385,9 +637,11 @@ class Viewport3D(QWidget):
             style = getattr(getattr(self.plotter, "iren", None), "style", None)
             if style is None:
                 return
-            style.add_observer("InteractionEvent", self._on_camera_interaction)
-            style.add_observer("EndInteractionEvent", self._on_camera_interaction)
-            self._navigation_style = style
+            if self._navigation_style is not style:
+                style.add_observer("StartInteractionEvent", self._on_camera_interaction_start)
+                style.add_observer("InteractionEvent", self._on_camera_interaction)
+                style.add_observer("EndInteractionEvent", self._on_camera_interaction_end)
+                self._navigation_style = style
             self._lock_camera_roll()
         except Exception:
             # Keep the viewport usable with older PyVista/VTK combinations.
@@ -396,8 +650,106 @@ class Viewport3D(QWidget):
             except Exception:
                 pass
 
+    def _on_camera_interaction_start(self, *_args: object) -> None:
+        """Stop programmed motion as soon as the user takes the camera back."""
+
+        self._stop_camera_animation()
+        self._stop_camera_inertia()
+        self._camera_interaction_active = True
+        self._camera_last_orbit_angles = self._camera_orbit_angles()
+        self._camera_last_sample_time = time.perf_counter()
+
     def _on_camera_interaction(self, *_args: object) -> None:
+        if not self._camera_interaction_active:
+            self._on_camera_interaction_start()
+        self._record_camera_sample()
         self._lock_camera_roll()
+
+    def _on_camera_interaction_end(self, *_args: object) -> None:
+        self._camera_interaction_active = False
+        self._camera_last_orbit_angles = None
+        self._lock_camera_roll()
+
+        speed = max(
+            abs(self._camera_velocity_azimuth),
+            abs(self._camera_velocity_elevation),
+        )
+        if speed >= 24.0:
+            self._camera_inertia_last_time = time.perf_counter()
+            self._camera_inertia_timer.start()
+        else:
+            self._stop_camera_inertia()
+
+    @staticmethod
+    def _wrap_angle(angle: float) -> float:
+        return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+    def _camera_orbit_angles(self) -> tuple[float, float] | None:
+        pose = self._capture_camera_pose()
+        if pose is None:
+            return None
+        position, focal_point, _up, _parallel_scale = pose
+        offset = position - focal_point
+        radial = math.hypot(float(offset[0]), float(offset[1]))
+        distance = float(np.linalg.norm(offset))
+        if distance <= 1e-9:
+            return None
+        return math.atan2(float(offset[1]), float(offset[0])), math.atan2(
+            float(offset[2]), radial,
+        )
+
+    def _record_camera_sample(self) -> None:
+        angles = self._camera_orbit_angles()
+        now = time.perf_counter()
+        previous = self._camera_last_orbit_angles
+        elapsed = now - self._camera_last_sample_time
+        if angles is not None and previous is not None and elapsed > 1e-4:
+            raw_azimuth = math.degrees(self._wrap_angle(angles[0] - previous[0])) / elapsed
+            raw_elevation = math.degrees(angles[1] - previous[1]) / elapsed
+            raw_azimuth = float(np.clip(raw_azimuth, -900.0, 900.0))
+            raw_elevation = float(np.clip(raw_elevation, -900.0, 900.0))
+            smoothing = 0.55
+            self._camera_velocity_azimuth = (
+                self._camera_velocity_azimuth * (1.0 - smoothing)
+                + raw_azimuth * smoothing
+            )
+            self._camera_velocity_elevation = (
+                self._camera_velocity_elevation * (1.0 - smoothing)
+                + raw_elevation * smoothing
+            )
+        self._camera_last_orbit_angles = angles
+        self._camera_last_sample_time = now
+
+    def _advance_camera_inertia(self) -> None:
+        if self._camera_interaction_active:
+            self._stop_camera_inertia()
+            return
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            self._stop_camera_inertia()
+            return
+
+        now = time.perf_counter()
+        elapsed = min(max(now - self._camera_inertia_last_time, 0.008), 0.05)
+        self._camera_inertia_last_time = now
+        try:
+            camera.Azimuth(float(self._camera_velocity_azimuth * elapsed))
+            camera.Elevation(float(self._camera_velocity_elevation * elapsed))
+        except (AttributeError, TypeError, ValueError):
+            self._stop_camera_inertia()
+            return
+
+        self._lock_camera_roll()
+        self._render_camera()
+
+        decay = math.exp(-6.5 * elapsed)
+        self._camera_velocity_azimuth *= decay
+        self._camera_velocity_elevation *= decay
+        if max(
+            abs(self._camera_velocity_azimuth),
+            abs(self._camera_velocity_elevation),
+        ) < 8.0:
+            self._stop_camera_inertia()
 
     def _lock_camera_roll(self) -> None:
         camera = getattr(self.plotter, "camera", None)
@@ -418,6 +770,115 @@ class Viewport3D(QWidget):
             camera.SetViewUp(float(up[0]), float(up[1]), float(up[2]))
         except (AttributeError, TypeError, ValueError):
             return
+
+    def _capture_camera_pose(self) -> CameraPose | None:
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            return None
+        try:
+            position = np.asarray(camera.position, dtype=np.float64)
+            focal_point = np.asarray(camera.focal_point, dtype=np.float64)
+            up = np.asarray(camera.GetViewUp(), dtype=np.float64)
+            parallel_scale = float(camera.GetParallelScale())
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if (
+            position.shape != (3,)
+            or focal_point.shape != (3,)
+            or up.shape != (3,)
+            or not np.all(np.isfinite(position))
+            or not np.all(np.isfinite(focal_point))
+            or not np.all(np.isfinite(up))
+            or not math.isfinite(parallel_scale)
+        ):
+            return None
+        if parallel_scale <= 1e-9:
+            parallel_scale = 1.0
+        return position.copy(), focal_point.copy(), up.copy(), parallel_scale
+
+    def _apply_camera_pose(self, pose: CameraPose, *, render: bool) -> None:
+        camera = getattr(self.plotter, "camera", None)
+        if camera is None:
+            return
+        position, focal_point, up, parallel_scale = pose
+        try:
+            camera.SetPosition(*[float(value) for value in position])
+            camera.SetFocalPoint(*[float(value) for value in focal_point])
+            camera.SetViewUp(*[float(value) for value in up])
+            camera.SetParallelScale(float(parallel_scale))
+        except (AttributeError, TypeError, ValueError):
+            return
+        if render:
+            self._render_camera()
+
+    def _render_camera(self) -> None:
+        try:
+            self.plotter.renderer.ResetCameraClippingRange()
+        except (AttributeError, TypeError, ValueError):
+            pass
+        self.plotter.render()
+
+    def _stop_camera_inertia(self) -> None:
+        self._camera_inertia_timer.stop()
+        self._camera_velocity_azimuth = 0.0
+        self._camera_velocity_elevation = 0.0
+        self._camera_inertia_last_time = 0.0
+
+    def _stop_camera_animation(self) -> None:
+        if self._camera_animation is not None:
+            animation = self._camera_animation
+            self._camera_animation = None
+            animation.stop()
+            animation.deleteLater()
+
+    def _animate_camera_to(self, target: CameraPose, *, duration: int = 460) -> None:
+        start = self._capture_camera_pose()
+        if start is None:
+            self._apply_camera_pose(target, render=True)
+            return
+        self._stop_camera_animation()
+        if (
+            np.allclose(start[0], target[0], rtol=0.0, atol=1e-8)
+            and np.allclose(start[1], target[1], rtol=0.0, atol=1e-8)
+        ):
+            self._apply_camera_pose(target, render=True)
+            return
+
+        start_pose: CameraPose = (
+            start[0].copy(),
+            start[1].copy(),
+            start[2].copy(),
+            float(start[3]),
+        )
+        target_pose: CameraPose = (
+            target[0].copy(),
+            target[1].copy(),
+            target[2].copy(),
+            float(target[3]),
+        )
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(max(int(duration), 1))
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        animation.valueChanged.connect(
+            lambda value: self._apply_camera_pose(
+                _interpolate_camera_pose(start_pose, target_pose, float(value)),
+                render=True,
+            )
+        )
+
+        def finish() -> None:
+            self._apply_camera_pose(target_pose, render=True)
+            self._lock_camera_roll()
+            if self._camera_animation is animation:
+                self._camera_animation = None
+            animation.deleteLater()
+
+        animation.finished.connect(finish)
+        self._camera_animation = animation
+        self._apply_camera_pose(start_pose, render=False)
+        animation.start()
 
     def _focus_camera_on_vat(self) -> None:
         """Keep the camera target at the fixed vat origin after a reset."""
@@ -476,20 +937,35 @@ class Viewport3D(QWidget):
             float(minimum[2]), float(maximum[2]),
         )
 
-    def _reset_camera_view(self) -> None:
+    def _reset_camera_view(self, *, animate: bool = False) -> None:
+        self._stop_camera_inertia()
+        self._stop_camera_animation()
+        current_pose = self._capture_camera_pose()
         bounds = self._camera_reset_bounds()
-        self.plotter.view_isometric(bounds=bounds, render=False)
+        target_pose: CameraPose | None = None
         try:
-            self.plotter.camera.azimuth += 25
-            self.plotter.camera.elevation += 12
-        except Exception:
-            pass
-        self._focus_camera_on_vat()
-        self._lock_camera_roll()
-        self.plotter.render()
+            self.plotter.view_isometric(bounds=bounds, render=False)
+            try:
+                self.plotter.camera.azimuth += 25
+                self.plotter.camera.elevation += 12
+            except Exception:
+                pass
+            self._focus_camera_on_vat()
+            self._lock_camera_roll()
+            target_pose = self._capture_camera_pose()
+        finally:
+            if current_pose is not None:
+                self._apply_camera_pose(current_pose, render=False)
+
+        if target_pose is None:
+            return
+        if animate and self._vtk_interactor(self.plotter) is not None:
+            self._animate_camera_to(target_pose)
+        else:
+            self._apply_camera_pose(target_pose, render=True)
 
     def reset_camera(self) -> None:
-        self._reset_camera_view()
+        self._reset_camera_view(animate=True)
 
     # --- колба (фиксированный размер, не зависит от модели) --------------------
     def update_vat(self, diameter_mm: float) -> None:
@@ -789,6 +1265,8 @@ class Viewport3D(QWidget):
 
     def _remove_transform_widgets(self) -> None:
         self._stop_matrix_animation()
+        self._stop_camera_animation()
+        self._stop_camera_inertia()
         self._affine_capture_pending = False
         self._pending_affine_start = None
         if self._affine_widget is not None:

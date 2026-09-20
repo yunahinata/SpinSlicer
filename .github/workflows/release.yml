@@ -94,6 +94,43 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\SpinSlicer.exe -DestinationPath ${{ matrix.archive }}
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress --yes
+          }
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          $releaseVersion = $env:RELEASE_VERSION -replace '^v', ''
+          if ($releaseVersion -notmatch '^(\d+\.\d+\.\d+)') {
+            $appVersion = '0.1.0'
+            $releaseVersion = $appVersion
+          } else {
+            $appVersion = $Matches[1]
+          }
+          $releaseVersion = $releaseVersion -replace '[^0-9A-Za-z._+-]', '.'
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $iscc = @(
+            (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            throw 'Inno Setup compiler (ISCC.exe) was not found'
+          }
+          & $iscc "/DMyAppVersion=$appVersion" "/DMyAppRelease=$releaseVersion" /Orelease-assets packaging\SpinSlicer.iss
+          $installer = "release-assets\SpinSlicer-Setup-$releaseVersion.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Inno Setup did not produce $installer"
+          }
+
       - name: Package Linux artifact
         if: runner.os == 'Linux'
         shell: bash
@@ -120,6 +157,14 @@ jobs:
         with:
           name: SpinSlicer-windows-executable
           path: dist/SpinSlicer.exe
+          if-no-files-found: error
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpinSlicer-windows-installer
+          path: release-assets/SpinSlicer-Setup-*.exe
           if-no-files-found: error
 
       - name: Upload Linux packages
@@ -164,6 +209,7 @@ jobs:
             - Moved printer and process settings to a dedicated Settings tab.
             - Added a visible square CAD-style vat workplane and a real annotated orientation cube.
             - Added full rotation rings and compact Fusion-style percentage/size scaling controls.
+            - Added smooth camera orbit transitions and inertial rotation after mouse release.
             - Updated CAD navigation: left-button panning, middle-button orbiting, right-button dolly, and a roll-free camera horizon.
             - Swapped CAD camera bindings to left-button rotation and right-button panning, and keep the vat centered after camera reset.
             - Fixed and restyled the orientation cube, and added compact color-coded square scale handles.
