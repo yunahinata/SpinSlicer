@@ -386,10 +386,15 @@ class Viewport3D(QWidget):
             assembly = vtk.vtkPropAssembly()
             assembly.AddPart(cube)
             assembly.AddPart(axes)
+            assembly.AddPart(self._create_orientation_bounds_proxy())
 
             orientation_widget = vtk.vtkOrientationMarkerWidget()
             orientation_widget.SetOrientationMarker(assembly)
             orientation_widget.SetInteractor(plotter.iren.interactor)
+            # The marker widget synchronizes its camera with this renderer.
+            # Keeping the parent explicit also keeps the cube pivot at the
+            # scene origin instead of letting VTK infer it from the overlay.
+            orientation_widget.SetDefaultRenderer(plotter.renderer)
             orientation_widget.SetViewport(*VIEWPORT_ORIENTATION_VIEWPORT)
             orientation_widget.SetEnabled(1)
             orientation_widget.SetInteractive(0)
@@ -594,6 +599,38 @@ class Viewport3D(QWidget):
         axes.SetShaftTypeToLine()
         axes.SetTipTypeToCone()
         return axes
+
+    @staticmethod
+    def _create_orientation_bounds_proxy() -> Any:
+        """Keep marker bounds symmetric around the cube's rotation center.
+
+        The three edge-continuation arrows extend only in the positive axis
+        directions.  ``vtkOrientationMarkerWidget`` uses the marker bounds
+        for camera synchronization and requires those bounds to be symmetric
+        around the origin; a transparent proxy supplies that invariant.
+        """
+
+        half_extent = (
+            0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE
+            + VIEWPORT_ORIENTATION_AXIS_LENGTH
+        )
+        source = vtk.vtkCubeSource()
+        source.SetBounds(
+            -half_extent,
+            half_extent,
+            -half_extent,
+            half_extent,
+            -half_extent,
+            half_extent,
+        )
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(source.GetOutputPort())
+        proxy = vtk.vtkActor()
+        proxy.SetMapper(mapper)
+        proxy.GetProperty().SetOpacity(0.0)
+        proxy.SetPickable(False)
+        proxy.SetDragable(False)
+        return proxy
 
     def _orientation_screen_rect(self) -> QRect | None:
         """Return the screen rectangle occupied by the custom ViewCube."""

@@ -85,6 +85,19 @@ def test_orientation_cube_disables_face_text_edges() -> None:
     )
 
 
+def test_orientation_bounds_proxy_keeps_rotation_center_at_cube_origin() -> None:
+    proxy = Viewport3D._create_orientation_bounds_proxy()
+    half_extent = 0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE + VIEWPORT_ORIENTATION_AXIS_LENGTH
+
+    assert np.allclose(
+        proxy.GetBounds(),
+        (-half_extent, half_extent, -half_extent, half_extent, -half_extent, half_extent),
+        atol=1e-6,
+    )
+    assert proxy.GetProperty().GetOpacity() == 0.0
+    assert proxy.GetPickable() == 0
+
+
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:
     direction = np.array([1.0, -2.0, -3.0])
 
