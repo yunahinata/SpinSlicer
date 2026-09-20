@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spinslicer"
-version = "0.1.4"
+version = "0.1.5"
 description = "Local projection/reconstruction research prototype for volumetric printing"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

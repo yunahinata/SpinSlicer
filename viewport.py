@@ -43,8 +43,8 @@ from constants import (
     VIEWPORT_BG_TOP,
     VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS,
     VIEWPORT_ORIENTATION_AXIS_LENGTH,
+    VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH,
     VIEWPORT_ORIENTATION_AXIS_ORIGIN,
-    VIEWPORT_ORIENTATION_AXIS_SHAFT_RADIUS,
     VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
     VIEWPORT_ORIENTATION_DRAG_SENSITIVITY,
@@ -404,59 +404,7 @@ class Viewport3D(QWidget):
             cube.GetZPlusFaceProperty().SetColor(0.96, 0.96, 0.97)
             cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
 
-            axes = vtk.vtkAxesActor()
-            axes.SetOrigin(*VIEWPORT_ORIENTATION_AXIS_ORIGIN)
-            axes.SetTotalLength(
-                VIEWPORT_ORIENTATION_AXIS_LENGTH,
-                VIEWPORT_ORIENTATION_AXIS_LENGTH,
-                VIEWPORT_ORIENTATION_AXIS_LENGTH,
-            )
-            # Match the shaft to the cone base so the edge continuation stays
-            # solid instead of leaving a visible gap before the arrowhead.
-            axes.SetNormalizedShaftLength(0.86, 0.86, 0.86)
-            axes.SetNormalizedTipLength(
-                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
-                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
-                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
-            )
-            axes.SetConeRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
-            axes.SetCylinderRadius(VIEWPORT_ORIENTATION_AXIS_SHAFT_RADIUS)
-            axes.SetShaftTypeToCylinder()
-            axes.SetTipTypeToCone()
-            # Keep the captions attached to the 3D arrow tips so they follow
-            # the ViewCube during rotation instead of floating beside it.
-            axes.SetAxisLabels(True)
-            axes.SetXAxisLabelText("X")
-            axes.SetYAxisLabelText("Y")
-            axes.SetZAxisLabelText("Z")
-            axes.SetNormalizedLabelPosition(1.04, 1.04, 1.04)
-            axis_colors = (
-                (0.94, 0.25, 0.22),
-                (0.35, 0.75, 0.38),
-                (0.30, 0.47, 0.95),
-            )
-            captions = (
-                axes.GetXAxisCaptionActor2D(),
-                axes.GetYAxisCaptionActor2D(),
-                axes.GetZAxisCaptionActor2D(),
-            )
-            shafts = (
-                axes.GetXAxisShaftProperty(),
-                axes.GetYAxisShaftProperty(),
-                axes.GetZAxisShaftProperty(),
-            )
-            tips = (
-                axes.GetXAxisTipProperty(),
-                axes.GetYAxisTipProperty(),
-                axes.GetZAxisTipProperty(),
-            )
-            for color, caption, shaft, tip in zip(axis_colors, captions, shafts, tips):
-                caption.GetCaptionTextProperty().SetColor(*color)
-                caption.GetCaptionTextProperty().SetBold(True)
-                caption.BorderOff()
-                caption.LeaderOff()
-                shaft.SetColor(*color)
-                tip.SetColor(*color)
+            axes = self._configure_orientation_axes(vtk.vtkAxesActor())
 
             assembly = vtk.vtkPropAssembly()
             assembly.AddPart(cube)
@@ -497,6 +445,66 @@ class Viewport3D(QWidget):
                 self._orientation_assembly = None
                 self._orientation_widget = None
                 self._orientation_marker_uses_custom_drag = False
+
+    @staticmethod
+    def _configure_orientation_axes(axes: Any) -> Any:
+        """Configure flat RGB arrows as continuations of the cube's edges."""
+
+        axes.SetOrigin(*VIEWPORT_ORIENTATION_AXIS_ORIGIN)
+        axes.SetTotalLength(
+            VIEWPORT_ORIENTATION_AXIS_LENGTH,
+            VIEWPORT_ORIENTATION_AXIS_LENGTH,
+            VIEWPORT_ORIENTATION_AXIS_LENGTH,
+        )
+        # Keep the line shaft and cone joined so the edge continuation remains
+        # solid instead of leaving a visible gap before the arrowhead.
+        axes.SetNormalizedShaftLength(0.86, 0.86, 0.86)
+        axes.SetNormalizedTipLength(
+            VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+            VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+            VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+        )
+        axes.SetConeRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
+        axes.SetShaftTypeToLine()
+        axes.SetTipTypeToCone()
+        # Keep the captions attached to the 3D arrow tips so they follow
+        # the ViewCube during rotation instead of floating beside it.
+        axes.SetAxisLabels(True)
+        axes.SetXAxisLabelText("X")
+        axes.SetYAxisLabelText("Y")
+        axes.SetZAxisLabelText("Z")
+        axes.SetNormalizedLabelPosition(1.04, 1.04, 1.04)
+        axis_colors = (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )
+        captions = (
+            axes.GetXAxisCaptionActor2D(),
+            axes.GetYAxisCaptionActor2D(),
+            axes.GetZAxisCaptionActor2D(),
+        )
+        shafts = (
+            axes.GetXAxisShaftProperty(),
+            axes.GetYAxisShaftProperty(),
+            axes.GetZAxisShaftProperty(),
+        )
+        tips = (
+            axes.GetXAxisTipProperty(),
+            axes.GetYAxisTipProperty(),
+            axes.GetZAxisTipProperty(),
+        )
+        for color, caption, shaft, tip in zip(axis_colors, captions, shafts, tips):
+            caption.GetCaptionTextProperty().SetColor(*color)
+            caption.GetCaptionTextProperty().SetBold(True)
+            caption.BorderOff()
+            caption.LeaderOff()
+            shaft.SetColor(*color)
+            shaft.SetLineWidth(VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
+            shaft.SetLighting(False)
+            tip.SetColor(*color)
+            tip.SetLighting(False)
+        return axes
 
     def _orientation_screen_rect(self) -> QRect | None:
         """Return the screen rectangle occupied by the custom ViewCube."""

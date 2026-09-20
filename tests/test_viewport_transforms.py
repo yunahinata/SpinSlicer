@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import numpy as np
 import trimesh.transformations as tf
+import vtk
 
 from constants import (
+    VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH,
     VIEWPORT_ORIENTATION_AXIS_ORIGIN,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
 )
 from viewport import (
+    Viewport3D,
     _camera_up_vector,
     _interpolate_camera_pose,
     _scale_matrix_from_box,
@@ -20,6 +23,16 @@ def test_orientation_arrows_start_at_the_scaled_cube_corner() -> None:
     expected_corner = np.full(3, 0.5 * VIEWPORT_ORIENTATION_CUBE_SCALE)
 
     assert np.allclose(VIEWPORT_ORIENTATION_AXIS_ORIGIN, expected_corner)
+
+
+def test_orientation_arrows_match_the_reference_style() -> None:
+    axes = Viewport3D._configure_orientation_axes(vtk.vtkAxesActor())
+
+    assert axes.GetShaftType() == vtk.vtkAxesActor.LINE_SHAFT
+    assert np.isclose(axes.GetXAxisShaftProperty().GetLineWidth(), VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH)
+    assert np.allclose(axes.GetXAxisShaftProperty().GetColor(), (1.0, 0.0, 0.0))
+    assert np.allclose(axes.GetYAxisShaftProperty().GetColor(), (0.0, 1.0, 0.0))
+    assert np.allclose(axes.GetZAxisShaftProperty().GetColor(), (0.0, 0.0, 1.0))
 
 
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:
