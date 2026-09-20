@@ -30,7 +30,7 @@ import trimesh
 import trimesh.transformations as tf
 import vtk
 from PyQt6.QtCore import QEasingCurve, QEvent, QRect, Qt, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from constants import (
@@ -349,7 +349,6 @@ class Viewport3D(QWidget):
         self._orientation_axes: Any = None
         self._orientation_assembly: Any = None
         self._orientation_widget: Any = None
-        self._orientation_overlay: QWidget | None = None
         self._orientation_marker_uses_custom_drag = False
         self._orientation_dragging = False
         self._orientation_drag_last: tuple[float, float] | None = None
@@ -369,7 +368,6 @@ class Viewport3D(QWidget):
         self.plotter.interactor.installEventFilter(self)
         self._install_navigation_style()
         self._create_orientation_cube(plotter)
-        self._create_orientation_overlay()
 
         self._reset_camera_view()
 
@@ -422,10 +420,9 @@ class Viewport3D(QWidget):
             axes.SetCylinderRadius(0.07)
             axes.SetShaftTypeToLine()
             axes.SetTipTypeToCone()
-            # The target ViewCube uses the compact, fixed XYZ captions around
-            # the marker.  Keep the arrows in 3D, but draw one clean caption
-            # for each of them in the Qt overlay below (no duplicate labels).
-            axes.SetAxisLabels(False)
+            # Keep the captions attached to the 3D arrow tips so they follow
+            # the ViewCube during rotation instead of floating beside it.
+            axes.SetAxisLabels(True)
             axes.SetXAxisLabelText("X")
             axes.SetYAxisLabelText("Y")
             axes.SetZAxisLabelText("Z")
@@ -497,48 +494,6 @@ class Viewport3D(QWidget):
                 self._orientation_assembly = None
                 self._orientation_widget = None
                 self._orientation_marker_uses_custom_drag = False
-
-    def _create_orientation_overlay(self) -> None:
-        """Add the target's external XYZ labels without Home/down controls."""
-
-        overlay = QWidget(self)
-        overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self._orientation_overlay = overlay
-
-        def make_label(
-            text: str,
-            color: str,
-            geometry: tuple[int, int, int, int],
-            point_size: int,
-        ) -> QLabel:
-            label = QLabel(text, overlay)
-            label.setGeometry(*geometry)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet(
-                f"color: {color}; font-size: {point_size}px; font-weight: 700; "
-                "background: transparent;"
-            )
-            return label
-
-        # These coordinates match the reference marker.  Home and the down
-        # arrow intentionally are not part of the overlay.
-        make_label("Z", "#4e78f4", (70, 13, 22, 22), 15)
-        make_label("X", "#ef5147", (7, 88, 22, 22), 15)
-        make_label("Y", "#55bb62", (135, 59, 22, 22), 15)
-        self._position_orientation_overlay()
-
-    def _position_orientation_overlay(self) -> None:
-        if self._orientation_overlay is None:
-            return
-        width = min(170, max(self.width(), 0))
-        height = min(158, max(self.height(), 0))
-        self._orientation_overlay.setGeometry(0, 0, width, height)
-        self._orientation_overlay.raise_()
-
-    def resizeEvent(self, event: Any) -> None:  # noqa: N802 (Qt API name)
-        super().resizeEvent(event)
-        self._position_orientation_overlay()
 
     def _orientation_screen_rect(self) -> QRect | None:
         """Return the screen rectangle occupied by the custom ViewCube."""
@@ -649,7 +604,7 @@ class Viewport3D(QWidget):
         if camera is None:
             return
         try:
-            camera.Azimuth(dx * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
+            camera.Azimuth(-dx * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
             camera.Elevation(dy * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
             self._on_camera_interaction()
             self._render_camera()
