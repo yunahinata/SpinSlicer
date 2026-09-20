@@ -56,9 +56,9 @@ VIEWPORT_WORKPLANE_RESOLUTION = 32
 VIEWPORT_ORIENTATION_WIDGET_SIZE = 96
 # Normalized VTK viewport for the custom ViewCube: tight to the upper-left
 # corner while still leaving room for the three edge-continuation arrows.
-VIEWPORT_ORIENTATION_VIEWPORT = (0.0, 0.72, 0.18, 0.995)
+VIEWPORT_ORIENTATION_VIEWPORT = (0.0, 0.72, 0.15, 0.995)
 VIEWPORT_ORIENTATION_CUBE_SCALE = 1.18
-VIEWPORT_ORIENTATION_AXIS_LENGTH = 1.05
+VIEWPORT_ORIENTATION_AXIS_LENGTH = 0.90
 # Each positive axis starts at its own outer cube vertex. This keeps the
 # arrowhead visibly attached to the vertex instead of emerging from a face.
 VIEWPORT_ORIENTATION_AXIS_ORIGINS = (

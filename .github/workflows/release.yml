@@ -211,6 +211,7 @@ jobs:
             - Made the edge-continuation arrows longer, solid, and slightly thicker.
             - Matched the reference arrows with flat primary RGB colors and continuous line shafts.
             - Replaced the rounded arrow tips with small triangular tips from the reference.
+            - Aligned the arrows with the enlarged cube vertices, shortened their reach, and shifted the widget left.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

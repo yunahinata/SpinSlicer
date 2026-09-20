@@ -79,6 +79,10 @@ def test_orientation_cube_disables_face_text_edges() -> None:
     cube = Viewport3D._configure_orientation_cube(vtk.vtkAnnotatedCubeActor())
 
     assert cube.GetTextEdgesVisibility() == 0
+    assert np.allclose(
+        cube.GetAssembly().GetScale(),
+        (VIEWPORT_ORIENTATION_CUBE_SCALE,) * 3,
+    )
 
 
 def test_camera_up_vector_stays_orthogonal_to_view_direction() -> None:

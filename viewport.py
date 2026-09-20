@@ -437,11 +437,23 @@ class Viewport3D(QWidget):
         cube.SetFaceTextVisibility(True)
         cube.SetTextEdgesVisibility(False)
         cube.SetCubeVisibility(True)
-        cube.SetScale(
-            VIEWPORT_ORIENTATION_CUBE_SCALE,
-            VIEWPORT_ORIENTATION_CUBE_SCALE,
-            VIEWPORT_ORIENTATION_CUBE_SCALE,
-        )
+        # vtkAnnotatedCubeActor renders its faces through an internal
+        # vtkAssembly.  Scaling the outer vtkProp3D does not scale those
+        # sub-actors, so the arrows would start outside the visible cube.
+        # Scale the internal assembly that actually owns the cube and labels.
+        cube_assembly = cube.GetAssembly()
+        if cube_assembly is not None:
+            cube_assembly.SetScale(
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+            )
+        else:
+            cube.SetScale(
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+                VIEWPORT_ORIENTATION_CUBE_SCALE,
+            )
         cube.GetCubeProperty().SetColor(0.82, 0.84, 0.87)
         cube.GetXPlusFaceProperty().SetColor(0.91, 0.92, 0.94)
         cube.GetXMinusFaceProperty().SetColor(0.78, 0.80, 0.84)
