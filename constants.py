@@ -57,7 +57,7 @@ VIEWPORT_ORIENTATION_WIDGET_SIZE = 96
 # Normalized VTK viewport for the custom ViewCube: tight to the upper-right
 # corner while still leaving room for the three edge-continuation arrows.
 VIEWPORT_ORIENTATION_VIEWPORT = (0.85, 0.72, 1.0, 0.995)
-VIEWPORT_ORIENTATION_CUBE_SCALE = 1.25
+VIEWPORT_ORIENTATION_CUBE_SCALE = 1.35
 VIEWPORT_ORIENTATION_AXIS_LENGTH = 0.90
 # Each positive axis starts at its own outer cube vertex. This keeps the
 # arrowhead visibly attached to the vertex instead of emerging from a face.
@@ -82,7 +82,8 @@ VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH = 0.14
 # Absolute world-space radius for the small arrowhead cone.
 VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS = 0.10
 VIEWPORT_ORIENTATION_AXIS_CONE_RESOLUTION = 3
-VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH = 2.5
+# Keep the edge-continuation arrows readable at the compact marker size.
+VIEWPORT_ORIENTATION_AXIS_LINE_WIDTH = 3.0
 VIEWPORT_ORIENTATION_DRAG_SENSITIVITY = 0.70
 
 # Децимация полигонов — только для показа во вьюпорте (60 FPS на тяжёлых STL).
