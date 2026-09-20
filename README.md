@@ -183,8 +183,8 @@ GitHub Actions runs the same checks on pushes and pull requests.
 To publish downloadable desktop builds, create and push a version tag:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 The `Build release artifacts` workflow then attaches six files to the GitHub

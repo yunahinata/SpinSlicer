@@ -110,7 +110,7 @@ jobs:
         run: |
           $releaseVersion = $env:RELEASE_VERSION -replace '^v', ''
           if ($releaseVersion -notmatch '^(\d+\.\d+\.\d+)') {
-            $appVersion = '0.1.0'
+            $appVersion = '0.1.1'
             $releaseVersion = $appVersion
           } else {
             $appVersion = $Matches[1]
@@ -202,22 +202,10 @@ jobs:
 
             ### Changelog
 
-            - Added a SpinSlicer application icon to the desktop UI and packages.
-            - Set Russian as the default UI language.
-            - Removed the parametric nut button from the Slicer tab.
-            - Preserved internal bores and thread relief when slicing STL models.
-            - Moved printer and process settings to a dedicated Settings tab.
-            - Added a visible square CAD-style vat workplane and a real annotated orientation cube.
-            - Added full rotation rings and compact Fusion-style percentage/size scaling controls.
-            - Added smooth camera orbit transitions and inertial rotation after mouse release.
-            - Updated CAD navigation: left-button panning, middle-button orbiting, right-button dolly, and a roll-free camera horizon.
-            - Swapped CAD camera bindings to left-button rotation and right-button panning, and keep the vat centered after camera reset.
-            - Fixed and restyled the orientation cube, and added compact color-coded square scale handles.
-            - Reduced the CAD workplane and matched the compact reference-style orientation cube with Home and XYZ markers.
-            - Added an in-app explanation of the projection-slicing workflow and camera controls.
-            - Removed the extra workflow card and Home/down overlay, and bound the XYZ labels to the orientation cube.
-            - Kept the progress indicator on the main Slicer tab and moved Settings to the end.
-            - Added an optional isolated Conda installer and runtime bridge for VAMToolbox CAL.
+            - Fixed the ViewCube drag direction so it follows the pointer.
+            - Reduced the orientation arrowheads and moved the axis origin to the cube edge.
+            - Shifted the ViewCube slightly left within the viewport.
+            - Removed post-release camera inertia so rotation stops with the pointer without overshoot.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

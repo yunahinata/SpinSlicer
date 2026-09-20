@@ -3,7 +3,7 @@ set -euo pipefail
 
 DIST_DIR="${DIST_DIR:-dist}"
 OUTPUT_DIR="${OUTPUT_DIR:-release-assets}"
-RELEASE_VERSION="${RELEASE_VERSION:-0.1.0}"
+RELEASE_VERSION="${RELEASE_VERSION:-0.1.1}"
 BINARY="${DIST_DIR}/SpinSlicer"
 
 if [[ ! -f "$BINARY" ]]; then
@@ -17,7 +17,7 @@ mkdir -p "$OUTPUT_DIR"
 # normally v1.2.3; manual workflow runs fall back to the project version.
 VERSION="${RELEASE_VERSION#v}"
 if [[ ! "$VERSION" =~ ^[0-9] ]]; then
-    VERSION="0.1.0"
+    VERSION="0.1.1"
 fi
 DEB_VERSION="$(printf '%s' "$VERSION" | sed 's/[^0-9A-Za-z.+~-]/./g')"
 RPM_VERSION="$(printf '%s' "$VERSION" | sed 's/[^0-9A-Za-z.+_]/./g')"

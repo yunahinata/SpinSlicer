@@ -22,7 +22,6 @@ viewport.py
 from __future__ import annotations
 
 import math
-import time
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -42,7 +41,10 @@ from constants import (
     VAT_RESOLUTION,
     VIEWPORT_BG_BOTTOM,
     VIEWPORT_BG_TOP,
+    VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS,
     VIEWPORT_ORIENTATION_AXIS_LENGTH,
+    VIEWPORT_ORIENTATION_AXIS_ORIGIN,
+    VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
     VIEWPORT_ORIENTATION_CUBE_SCALE,
     VIEWPORT_ORIENTATION_DRAG_SENSITIVITY,
     VIEWPORT_ORIENTATION_VIEWPORT,
@@ -357,15 +359,6 @@ class Viewport3D(QWidget):
         self._model_bounds: np.ndarray | None = None
         self._matrix_animation: QVariantAnimation | None = None
         self._camera_animation: QVariantAnimation | None = None
-        self._camera_inertia_timer = QTimer(self)
-        self._camera_inertia_timer.setInterval(16)
-        self._camera_inertia_timer.timeout.connect(self._advance_camera_inertia)
-        self._camera_interaction_active = False
-        self._camera_last_orbit_angles: tuple[float, float] | None = None
-        self._camera_last_sample_time = 0.0
-        self._camera_inertia_last_time = 0.0
-        self._camera_velocity_azimuth = 0.0
-        self._camera_velocity_elevation = 0.0
         self._affine_capture_pending = False
         self._pending_affine_start: np.ndarray | None = None
         self._scale_interaction_start_matrix: np.ndarray | None = None
@@ -411,15 +404,19 @@ class Viewport3D(QWidget):
             cube.GetZMinusFaceProperty().SetColor(0.76, 0.78, 0.82)
 
             axes = vtk.vtkAxesActor()
-            axes.SetOrigin(0.0, 0.0, 0.0)
+            axes.SetOrigin(*VIEWPORT_ORIENTATION_AXIS_ORIGIN)
             axes.SetTotalLength(
                 VIEWPORT_ORIENTATION_AXIS_LENGTH,
                 VIEWPORT_ORIENTATION_AXIS_LENGTH,
                 VIEWPORT_ORIENTATION_AXIS_LENGTH,
             )
             axes.SetNormalizedShaftLength(0.72, 0.72, 0.72)
-            axes.SetNormalizedTipLength(0.28, 0.28, 0.28)
-            axes.SetConeRadius(0.50)
+            axes.SetNormalizedTipLength(
+                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+                VIEWPORT_ORIENTATION_AXIS_TIP_LENGTH,
+            )
+            axes.SetConeRadius(VIEWPORT_ORIENTATION_AXIS_CONE_RADIUS)
             axes.SetCylinderRadius(0.07)
             axes.SetShaftTypeToLine()
             axes.SetTipTypeToCone()
@@ -544,7 +541,6 @@ class Viewport3D(QWidget):
                         int(round(position.y())),
                     ):
                         self._stop_camera_animation()
-                        self._stop_camera_inertia()
                         self._orientation_dragging = True
                         self._orientation_drag_last = (
                             float(position.x()),
@@ -606,8 +602,8 @@ class Viewport3D(QWidget):
         if camera is None:
             return
         try:
-            camera.Azimuth(-dx * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
-            camera.Elevation(-dy * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
+            camera.Azimuth(dx * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
+            camera.Elevation(dy * VIEWPORT_ORIENTATION_DRAG_SENSITIVITY)
             self._on_camera_interaction()
             self._render_camera()
         except (AttributeError, TypeError, ValueError):
@@ -654,102 +650,19 @@ class Viewport3D(QWidget):
         """Stop programmed motion as soon as the user takes the camera back."""
 
         self._stop_camera_animation()
-        self._stop_camera_inertia()
-        self._camera_interaction_active = True
-        self._camera_last_orbit_angles = self._camera_orbit_angles()
-        self._camera_last_sample_time = time.perf_counter()
 
     def _on_camera_interaction(self, *_args: object) -> None:
-        if not self._camera_interaction_active:
-            self._on_camera_interaction_start()
-        self._record_camera_sample()
         self._lock_camera_roll()
 
     def _on_camera_interaction_end(self, *_args: object) -> None:
-        self._camera_interaction_active = False
-        self._camera_last_orbit_angles = None
-        self._lock_camera_roll()
+        """Finish exactly where the pointer was released, without overshoot.
 
-        speed = max(
-            abs(self._camera_velocity_azimuth),
-            abs(self._camera_velocity_elevation),
-        )
-        if speed >= 24.0:
-            self._camera_inertia_last_time = time.perf_counter()
-            self._camera_inertia_timer.start()
-        else:
-            self._stop_camera_inertia()
-
-    @staticmethod
-    def _wrap_angle(angle: float) -> float:
-        return (angle + math.pi) % (2.0 * math.pi) - math.pi
-
-    def _camera_orbit_angles(self) -> tuple[float, float] | None:
-        pose = self._capture_camera_pose()
-        if pose is None:
-            return None
-        position, focal_point, _up, _parallel_scale = pose
-        offset = position - focal_point
-        radial = math.hypot(float(offset[0]), float(offset[1]))
-        distance = float(np.linalg.norm(offset))
-        if distance <= 1e-9:
-            return None
-        return math.atan2(float(offset[1]), float(offset[0])), math.atan2(
-            float(offset[2]), radial,
-        )
-
-    def _record_camera_sample(self) -> None:
-        angles = self._camera_orbit_angles()
-        now = time.perf_counter()
-        previous = self._camera_last_orbit_angles
-        elapsed = now - self._camera_last_sample_time
-        if angles is not None and previous is not None and elapsed > 1e-4:
-            raw_azimuth = math.degrees(self._wrap_angle(angles[0] - previous[0])) / elapsed
-            raw_elevation = math.degrees(angles[1] - previous[1]) / elapsed
-            raw_azimuth = float(np.clip(raw_azimuth, -900.0, 900.0))
-            raw_elevation = float(np.clip(raw_elevation, -900.0, 900.0))
-            smoothing = 0.55
-            self._camera_velocity_azimuth = (
-                self._camera_velocity_azimuth * (1.0 - smoothing)
-                + raw_azimuth * smoothing
-            )
-            self._camera_velocity_elevation = (
-                self._camera_velocity_elevation * (1.0 - smoothing)
-                + raw_elevation * smoothing
-            )
-        self._camera_last_orbit_angles = angles
-        self._camera_last_sample_time = now
-
-    def _advance_camera_inertia(self) -> None:
-        if self._camera_interaction_active:
-            self._stop_camera_inertia()
-            return
-        camera = getattr(self.plotter, "camera", None)
-        if camera is None:
-            self._stop_camera_inertia()
-            return
-
-        now = time.perf_counter()
-        elapsed = min(max(now - self._camera_inertia_last_time, 0.008), 0.05)
-        self._camera_inertia_last_time = now
-        try:
-            camera.Azimuth(float(self._camera_velocity_azimuth * elapsed))
-            camera.Elevation(float(self._camera_velocity_elevation * elapsed))
-        except (AttributeError, TypeError, ValueError):
-            self._stop_camera_inertia()
-            return
+        Direct trackball updates already keep the drag smooth. A timer-driven
+        post-release tail made short gestures continue moving and could cause
+        a visible jump when the next gesture started.
+        """
 
         self._lock_camera_roll()
-        self._render_camera()
-
-        decay = math.exp(-6.5 * elapsed)
-        self._camera_velocity_azimuth *= decay
-        self._camera_velocity_elevation *= decay
-        if max(
-            abs(self._camera_velocity_azimuth),
-            abs(self._camera_velocity_elevation),
-        ) < 8.0:
-            self._stop_camera_inertia()
 
     def _lock_camera_roll(self) -> None:
         camera = getattr(self.plotter, "camera", None)
@@ -817,12 +730,6 @@ class Viewport3D(QWidget):
         except (AttributeError, TypeError, ValueError):
             pass
         self.plotter.render()
-
-    def _stop_camera_inertia(self) -> None:
-        self._camera_inertia_timer.stop()
-        self._camera_velocity_azimuth = 0.0
-        self._camera_velocity_elevation = 0.0
-        self._camera_inertia_last_time = 0.0
 
     def _stop_camera_animation(self) -> None:
         if self._camera_animation is not None:
@@ -938,7 +845,6 @@ class Viewport3D(QWidget):
         )
 
     def _reset_camera_view(self, *, animate: bool = False) -> None:
-        self._stop_camera_inertia()
         self._stop_camera_animation()
         current_pose = self._capture_camera_pose()
         bounds = self._camera_reset_bounds()
@@ -1266,7 +1172,6 @@ class Viewport3D(QWidget):
     def _remove_transform_widgets(self) -> None:
         self._stop_matrix_animation()
         self._stop_camera_animation()
-        self._stop_camera_inertia()
         self._affine_capture_pending = False
         self._pending_affine_start = None
         if self._affine_widget is not None:
