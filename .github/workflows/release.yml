@@ -213,6 +213,7 @@ jobs:
             - Replaced the rounded arrow tips with small triangular tips from the reference.
             - Aligned the arrows with the enlarged cube vertices, shortened their reach, and shifted the widget left.
             - Fixed the ViewCube pivot so it rotates around its center instead of an outer vertex.
+            - Moved the ViewCube into the upper-right corner and slightly increased its size.
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
