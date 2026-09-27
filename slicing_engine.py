@@ -400,7 +400,7 @@ class SlicingEngine:
 
         # Каждый запуск получает отдельную директорию. Незавершённая папка
         # не имеет complete manifest и потому не может быть автоматически
-        # выбрана Projector/Simulator.
+        # выбрана для просмотра в Projector.
         out_dir = FrameRepository.create_run_dir(params.output_dir)
 
         target_h = max(int(round(output_res * nz / grid_res)), 1)

@@ -82,7 +82,6 @@ _EN: dict[str, str] = {
     "Проверить окружение VAMToolbox": "Verify VAMToolbox environment",
     "🧊 Слайсер": "🧊 Slicer",
     "🎬 Проектор (Видео)": "🎬 Projector (Video)",
-    "🔬 Симулятор": "🔬 Simulator",
     "Язык:": "Language:",
     "Готово к работе.": "Ready.",
     "Готово к работе. Загрузите STL-модель на вкладке «Слайсер», чтобы начать.":
@@ -99,16 +98,6 @@ _EN: dict[str, str] = {
     "Экспортировать уже собранные кадры в видеофайл":
         "Export assembled frames to a video file",
     "Скорость воспроизведения": "Playback speed",
-    "🔬 Симулировать результат": "🔬 Simulate result",
-    "Обратная Radon-реконструкция геометрии по кадрам":
-        "Reconstruct geometry from frames with inverse Radon",
-    "Порог визуализации (изоповерхность)": "Visualization threshold (isosurface)",
-    "Пересчитывает только поверхность — без повторной реконструкции":
-        "Recompute only the surface — no repeat reconstruction",
-    "Реконструкция через обратное Radon-преобразование (FBP) — визуальный "
-    "предпросмотр ожидаемой геометрии, не метрологическая симуляция полимеризации.":
-        "Inverse Radon (FBP) reconstruction — a visual preview of the "
-        "expected geometry, not a metrological cure simulation.",
     "Открыть STL-файл модели": "Open an STL model file",
     "Сбросить трансформацию и заново вписать модель в колбу":
         "Reset the transform and fit the model to the vat again",

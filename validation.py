@@ -239,22 +239,6 @@ def estimate_slicing_memory(
     return int((slices + sinograms + anti_alias + output_buffers) * 1.5)
 
 
-def estimate_reconstruction_memory(
-    grid_res: int,
-    layers: int,
-    num_frames: int,
-) -> int:
-    """Estimate peak memory for reconstruction arrays and temporary buffers."""
-
-    grid = max(1, int(grid_res))
-    nz = max(1, int(layers))
-    frames = max(1, int(num_frames))
-    float_bytes = 4
-    sinograms = nz * grid * frames * float_bytes
-    volume = grid * grid * nz * float_bytes
-    return int((sinograms + volume) * 1.5)
-
-
 def preflight_mesh(
     mesh: Any,
     params: Any,

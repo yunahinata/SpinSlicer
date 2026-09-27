@@ -39,7 +39,6 @@ from constants import (
 from validation import (
     ValidationError,
     ensure_directory,
-    estimate_reconstruction_memory,
     validate_directory,
 )
 
@@ -452,10 +451,9 @@ class FrameRepository:
             raise ValidationError(
                 f"Frame-set depth is {nz:,} layers; limit is {MAX_LAYERS:,}."
             )
-        reconstruction_bytes = estimate_reconstruction_memory(grid_res, nz, len(paths))
-        estimated_bytes = total_pixels * 4 + reconstruction_bytes
+        estimated_bytes = total_pixels * 4
         if estimated_bytes > MAX_ESTIMATED_MEMORY_BYTES:
-            raise ValidationError("Estimated frame/reconstruction memory exceeds the limit.")
+            raise ValidationError("Estimated frame-preview memory exceeds the limit.")
         if manifest is not None and manifest.frame_size != (width, height):
             raise ValidationError("Manifest frame_size does not match the frame set.")
 

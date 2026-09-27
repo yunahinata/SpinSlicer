@@ -51,7 +51,7 @@ def open_local_directory(target: str) -> bool:
 class SlicerTab(QWidget):
     progress = pyqtSignal(float, str)
     logMessage = pyqtSignal(str)
-    # Сигнализирует другим вкладкам ("Проектор", "Симулятор"), в какой папке
+    # Сигнализирует вкладке "Проектор", в какой папке
     # появились свежие кадры — чтобы не заставлять пользователя каждый раз
     # указывать её вручную.
     outputGenerated = pyqtSignal(str)

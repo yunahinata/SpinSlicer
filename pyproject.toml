@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "spinslicer"
 version = "0.1.9"
-description = "Local projection/reconstruction research prototype for volumetric printing"
+description = "Local projection and frame-preview tool for volumetric printing"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -45,13 +45,10 @@ files = [
     "model_node.py",
     "profiles.py",
     "nut_dialog.py",
-    "reconstruction.py",
     "slicer_tab.py",
     "slicing_engine.py",
-    "simulator_tab.py",
     "ui_panels.py",
     "validation.py",
-    "virtual_device.py",
     "threaded_nut.py",
     "vam_backend.py",
     "video_tab.py",

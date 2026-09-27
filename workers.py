@@ -27,7 +27,6 @@ from constants import (
     MAX_VIDEO_PREVIEW_BYTES,
 )
 from frame_io import FrameRepository
-from reconstruction import ReconstructionCancelled, ReconstructionResult, Reconstructor
 from slicing_engine import SliceCancelled, SliceParams, SlicingEngine
 from validation import ValidationError, validate_mesh_geometry, validate_stl_path
 
@@ -299,33 +298,3 @@ class VideoExportWorker(QThread):
                     Path(temporary_path).unlink(missing_ok=True)
                 except OSError:
                     pass
-
-
-class ReconstructionWorker(QThread):
-    """Обратная реконструкция (Radon^-1 / FBP) для вкладки "Симулятор"."""
-
-    progress = pyqtSignal(float, str)
-    finished_ok = pyqtSignal(object)   # ReconstructionResult
-    failed = pyqtSignal(str)
-    cancelled = pyqtSignal()
-
-    def __init__(self, frames_dir: str, parent=None):
-        super().__init__(parent)
-        self.frames_dir = frames_dir
-        self._cancel_event = threading.Event()
-
-    def request_cancel(self) -> None:
-        self._cancel_event.set()
-
-    def run(self) -> None:
-        try:
-            result: ReconstructionResult = Reconstructor.run(
-                self.frames_dir,
-                progress_cb=lambda frac, msg: self.progress.emit(frac, msg),
-                is_cancelled=self._cancel_event.is_set,
-            )
-            self.finished_ok.emit(result)
-        except ReconstructionCancelled:
-            self.cancelled.emit()
-        except Exception as exc:
-            self.failed.emit(f"{exc}\n{traceback.format_exc(limit=6)}")

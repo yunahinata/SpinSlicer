@@ -30,7 +30,7 @@ cat > "$DESKTOP_FILE" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=SpinSlicer
-Comment=Projection and reconstruction tool for volumetric printing
+Comment=Projection and frame-preview tool for volumetric printing
 Exec=spinslicer
 Terminal=false
 Categories=Science;Graphics;
@@ -54,7 +54,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: SpinSlicer maintainers <maintainers@example.invalid>
 Depends: libgl1, libegl1, libxkbcommon0, libxkbcommon-x11-0, libdbus-1-3, libglib2.0-0
-Description: Projection and reconstruction tool for volumetric printing
+Description: Projection and frame-preview tool for volumetric printing
  SpinSlicer is a PyQt desktop application for preparing and inspecting
  tomographic projection runs.
 EOF
@@ -70,7 +70,7 @@ cat > "$RPM_TOP/SPECS/spinslicer.spec" <<EOF
 Name:           spinslicer
 Version:        ${RPM_VERSION}
 Release:        1%{?dist}
-Summary:        Projection and reconstruction tool for volumetric printing
+Summary:        Projection and frame-preview tool for volumetric printing
 License:        MIT
 BuildArch:      x86_64
 Requires:       mesa-libGL

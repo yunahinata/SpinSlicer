@@ -10,11 +10,10 @@
 
 SpinSlicer is a local research prototype for tomographic volumetric additive
 manufacturing (VAM). It combines a PyQt6 desktop interface, a PyVista/VTK
-viewport, a projection generator, a frame player, and an inverse-Radon
-reconstruction preview.
+viewport, a projection generator, and a frame player.
 
-The application is intentionally a simulation and projection-preparation tool:
-it does not drive a real projector, resin vat, or rotation stage.
+The application prepares projections and previews generated frames. It does
+not drive a real projector, resin vat, or rotation stage.
 
 ## Features
 
@@ -28,12 +27,10 @@ it does not drive a real projector, resin vat, or rotation stage.
   it is never selected automatically by the default UI mode.
 - Preserve internal bores and thread relief in loaded STL models by default.
 - Preview generated frames as a rotating video and export them to MP4.
-- Reconstruct an approximate 3D volume with filtered back-projection (FBP).
 - Keep every completed run in its own directory with validated metadata and a
-  manifest; incomplete runs are not published to the player or simulator.
-- Store provisional machine/resin profiles and a deterministic frame schedule
-  in every completed manifest; the schedule can be replayed by the offline
-  virtual printer before hardware exists.
+  manifest; incomplete runs are not published to the player.
+- Store a deterministic projection schedule and the parameters used to create
+  each run in its manifest.
 - Russian is the default UI language. English remains available from the
   language selector and is stored with the application settings.
 
@@ -75,8 +72,7 @@ VAMToolbox:
 
 1. voxelize the target geometry;
 2. generate or optimize a projection sequence over evenly spaced angles;
-3. normalize the dose response and export a frame sequence;
-4. reconstruct the expected volume for a visual check.
+3. normalize the dose response and export a frame sequence for playback.
 
 The internal SpinSlicer backend uses a robust mesh-section → rasterization →
 Radon path and has no additional installation requirements. The optional
@@ -111,7 +107,7 @@ output_frames/
 type and parameters, transform matrix, projection backend, resin settings,
 frame dimensions, and `complete: true`. The frame repository validates image
 counts, dimensions, metadata, byte budgets, and completion status before a
-player or simulator can consume a run. Legacy flat folders containing
+player can consume a run. Legacy flat folders containing
 `frame_*.png` remain readable.
 
 ## Project layout
@@ -126,15 +122,13 @@ player or simulator can consume a run. Legacy flat folders containing
 | `ui_panels.py` | Printer/process settings and compact model transform controls. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |
-| `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |
 | `video_tab.py` | Frame playback and MP4 export. |
 | `frame_io.py` | Validated frame-set storage, metadata, and manifests. |
-| `profiles.py` | Validated machine and resin profiles for offline and real jobs. |
+| `profiles.py` | Validated machine and resin settings recorded with each projection run. |
 | `validation.py` | Mesh/resource preflight and workload budgets. |
 | `model_node.py` | Original mesh plus GPU-friendly transform state. |
 | `viewport.py` | PyVista/VTK 3D viewport. |
-| `workers.py` | Background Qt workers for load, generation, video, and reconstruction. |
-| `virtual_device.py` | Hardware-free projector/rotation-stage playback and timing checks. |
+| `workers.py` | Background Qt workers for model loading, generation, and video. |
 | `synthetic_shapes.py` | Canonical numerical-validation phantoms. |
 | `tests/` | Geometry, projection, storage, security, and validation tests. |
 
@@ -146,27 +140,6 @@ Long-running work executes in `QThread` workers and supports cancellation.
 Output directories are committed only after all PNG files and metadata pass
 validation. Local paths are opened through Qt's desktop API rather than a
 shell command.
-
-## Offline machine contract
-
-The current hardware-independent development path is:
-
-```text
-Slicer -> completed run directory -> VirtualPrinter -> future hardware adapter
-```
-
-Each generated manifest contains `machine_profile`, `resin_profile`, and
-`frame_schedule`. The profiles are intentionally provisional until a real
-projector and resin are measured. `virtual_device.VirtualPrinter` validates a
-completed run, replays every frame in its recorded angle order, reports frame
-hashes and timing, and can run either instantly or in real time:
-
-```python
-from virtual_device import VirtualPrinter
-
-report = VirtualPrinter(realtime=False).play("output_frames/run-...")
-print(report.frame_count, report.total_duration_s)
-```
 
 ## Development checks
 
@@ -180,15 +153,16 @@ GitHub Actions runs the same checks on pushes and pull requests.
 
 ## Releases
 
-To publish downloadable desktop builds, create and push a version tag:
+To publish downloadable desktop builds, update the version in `pyproject.toml`,
+then create and push a matching version tag:
 
 ```bash
-git tag v0.1.9
-git push origin v0.1.9
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-The `Build release artifacts` workflow then attaches six files to the GitHub
-Release:
+The `Build release artifacts` workflow publishes assets to the [GitHub Releases
+page](https://github.com/yunahinata/SpinSlicer/releases):
 
 - `SpinSlicer-windows-x64.zip` — contains `SpinSlicer.exe` for 64-bit Windows;
 - `SpinSlicer-Setup-<version>.exe` — per-user Windows installer with Start Menu
@@ -212,5 +186,5 @@ or `sudo dnf install ./SpinSlicer-<version>-1.x86_64.rpm`. Both packages add
 
 The DOI paper describes tomographic VAM and automatic exposure control through
 real-time scattered-light feedback. SpinSlicer currently implements projection
-generation and reconstruction preview only; automatic exposure hardware
-feedback is outside the scope of this desktop prototype.
+generation and frame preview only; automatic exposure hardware feedback is
+outside the scope of this desktop prototype.

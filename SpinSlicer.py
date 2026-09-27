@@ -5,9 +5,7 @@
   1. "🧊 Слайсер"         — генерация проекций (slicer_tab.SlicerTab).
   2. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
                               (video_tab.ProjectorTab).
-  3. "🔬 Симулятор"        — обратная реконструкция геометрии по кадрам
-                              (simulator_tab.SimulatorTab).
-  4. "Настройки"          — параметры принтера, процесса и VAMToolbox.
+  3. "Настройки"          — параметры принтера, процесса и VAMToolbox.
 
 Статус-бар и лог общие для всего приложения. Прогресс-бар показывается
 только на главной вкладке "Слайсер".
@@ -46,7 +44,6 @@ from constants import (
 )
 from i18n import LANGUAGES, apply_translations, language, set_language, tr
 from job_controller import JobController
-from simulator_tab import SimulatorTab
 from slicer_tab import SlicerTab
 from ui_panels import ProcessSettingsPanel
 from video_tab import ProjectorTab
@@ -204,17 +201,14 @@ class CALSlicerMainWindow(QMainWindow):
             process_panel=self.settings_tab,
         )
         self.projector_tab = ProjectorTab(job_controller=self._job_controller)
-        self.simulator_tab = SimulatorTab(job_controller=self._job_controller)
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
-        self.tabs.addTab(self.simulator_tab, "🔬 Симулятор")
         self.tabs.addTab(self.settings_tab, "Настройки")
 
         self.tabs.setTabToolTip(0, "Настройка модели и генерация проекций")
         self.tabs.setTabToolTip(1, "Проигрывание и экспорт готовых кадров в MP4")
-        self.tabs.setTabToolTip(2, "Обратная реконструкция геометрии по кадрам")
-        self.tabs.setTabToolTip(3, "Настройки принтера, процесса и альтернативного движка")
+        self.tabs.setTabToolTip(2, "Настройки принтера, процесса и альтернативного движка")
 
         root.addWidget(self.tabs, 1)
 
@@ -241,14 +235,12 @@ class CALSlicerMainWindow(QMainWindow):
 
     def _wire_signals(self) -> None:
         # Прогресс и лог рабочих вкладок стекаются в общий статус-бар/лог.
-        for tab in (self.slicer_tab, self.projector_tab, self.simulator_tab):
+        for tab in (self.slicer_tab, self.projector_tab):
             tab.progress.connect(self._set_progress)
             tab.logMessage.connect(self._log)
 
-        # Как только "Слайсер" досчитал кадры — "Проектор" и "Симулятор"
-        # сразу узнают, где их искать, без ручного выбора папки.
+        # Передать готовые кадры в просмотрщик без ручного выбора папки.
         self.slicer_tab.outputGenerated.connect(self.projector_tab.set_output_dir)
-        self.slicer_tab.outputGenerated.connect(self.simulator_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self._on_output_generated)
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
         self.tabs.currentChanged.connect(self._on_tab_changed)
