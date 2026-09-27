@@ -220,3 +220,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local build variants and release artifacts
+/build-*/
+/dist-*/
+/release-assets/
+/.agenthub/
+
+# Internal planning drafts; keep these out of public releases
+/docs/printer_strategy_2026.md
+/docs/university_collaboration_moscow.md
