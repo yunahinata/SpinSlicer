@@ -17,6 +17,10 @@ not drive a real projector, resin vat, or rotation stage.
 
 ## Features
 
+Stable v0.1.10 includes **Slicer**, **Projector (Video)** and **Settings**.
+The experimental simulator is maintained separately and is not included in
+this release. See [release notes](docs/releases/v0.1.10.md).
+
 - Load and transform STL models in physical millimetres.
 - Keep printer and process parameters on a dedicated Settings tab.
 - Edit the model in a full-width 3D viewport with a visible vat bottom plane

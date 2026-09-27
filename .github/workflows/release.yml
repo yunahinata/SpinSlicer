@@ -43,27 +43,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $pythonRoot = python -c "import sys; print(sys.base_prefix)"
-          $vcruntime140 = Join-Path $pythonRoot 'vcruntime140.dll'
-          $vcruntime140_1 = Join-Path $pythonRoot 'vcruntime140_1.dll'
-          if (!(Test-Path $vcruntime140) -or !(Test-Path $vcruntime140_1)) {
-            throw 'Python VC++ runtime DLLs were not found'
-          }
           python -m PyInstaller `
             --noconfirm `
             --clean `
-            --onefile `
-            --windowed `
-            --name SpinSlicer `
-            --collect-all qdarktheme `
-            --collect-all pyvista `
-            --collect-all pyvistaqt `
-            --collect-all vtkmodules `
-            --hidden-import vtkmodules.qt.QVTKRenderWindowInteractor `
-            --add-data "assets/spinslicer.svg;assets" `
-            --add-binary "$vcruntime140;." `
-            --add-binary "$vcruntime140_1;." `
-            SpinSlicer.py
+            --distpath dist `
+            --workpath build\SpinSlicer `
+            packaging\SpinSlicer.spec
 
       - name: Build Linux executable
         if: runner.os == 'Linux'
@@ -72,22 +57,39 @@ jobs:
           python -m PyInstaller
           --noconfirm
           --clean
-          --onefile
-          --windowed
-          --name SpinSlicer
-          --collect-all qdarktheme
-          --collect-all pyvista
-          --collect-all pyvistaqt
-          --collect-all vtkmodules
-          --hidden-import vtkmodules.qt.QVTKRenderWindowInteractor
-          --add-data assets/spinslicer.svg:assets
-          SpinSlicer.py
+          --distpath dist
+          --workpath build/SpinSlicer
+          packaging/SpinSlicer.spec
 
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm
+          sudo apt-get install -y --no-install-recommends rpm libegl1 libgl1 \
+            libxkbcommon-x11-0 libxkbcommon0 libdbus-1-3 libglib2.0-0
+
+      - name: Check packaged Windows application
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYVISTA_OFF_SCREEN: 'true'
+        run: |
+          $check = Start-Process -FilePath dist\SpinSlicer.exe -ArgumentList @('--self-check', 'build/self-check') -WindowStyle Hidden -PassThru -Wait
+          if ($check.ExitCode -ne 0) { throw "Packaged application failed: $($check.ExitCode)" }
+          $report = Get-Content build/self-check/self-check.json -Raw | ConvertFrom-Json
+          if (-not $report.ok) { throw 'Packaged application check did not pass' }
+
+      - name: Check packaged Linux application
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYVISTA_OFF_SCREEN: 'true'
+        run: |
+          dist/SpinSlicer --self-check build/self-check
+          python -c "import json; assert json.load(open('build/self-check/self-check.json'))['ok']"
 
       - name: Package Windows artifact
         if: runner.os == 'Windows'
@@ -185,6 +187,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out release notes
+        uses: actions/checkout@v7
+
       - name: Download platform artifacts
         uses: actions/download-artifact@v8
         with:
@@ -197,6 +202,7 @@ jobs:
         with:
           files: release-assets/*
           name: SpinSlicer ${{ github.ref_name }}
+          body_path: docs/releases/${{ github.ref_name }}.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

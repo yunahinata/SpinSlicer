@@ -18,9 +18,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (
+from qt_runtime import configure_qt_dll_search_path
+
+configure_qt_dll_search_path()
+
+from PyQt6.QtCore import QSettings  # noqa: E402
+from PyQt6.QtGui import QIcon  # noqa: E402
+from PyQt6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
     QHBoxLayout,
@@ -34,7 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from constants import (
+from constants import (  # noqa: E402
     ACCENT_GREEN,
     ACCENT_GREEN_HOVER,
     APP_ORG,
@@ -42,11 +46,11 @@ from constants import (
     BUTTON_RADIUS,
     PANEL_RADIUS,
 )
-from i18n import LANGUAGES, apply_translations, language, set_language, tr
-from job_controller import JobController
-from slicer_tab import SlicerTab
-from ui_panels import ProcessSettingsPanel
-from video_tab import ProjectorTab
+from i18n import LANGUAGES, apply_translations, language, set_language, tr  # noqa: E402
+from job_controller import JobController  # noqa: E402
+from slicer_tab import SlicerTab  # noqa: E402
+from ui_panels import ProcessSettingsPanel  # noqa: E402
+from video_tab import ProjectorTab  # noqa: E402
 
 
 def resource_path(relative_path: str) -> str:
@@ -305,6 +309,11 @@ def main() -> None:
         app.setStyleSheet(EXTRA_QSS)
 
     window = CALSlicerMainWindow()
+    if "--self-check" in sys.argv:
+        from release_check import check_release
+
+        output = Path(sys.argv[sys.argv.index("--self-check")+1])
+        raise SystemExit(check_release(app, window, output))
     window.resize(1680, 980)
     window.show()
     sys.exit(app.exec())
