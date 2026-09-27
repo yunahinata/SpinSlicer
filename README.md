@@ -17,17 +17,33 @@ The application is intentionally a simulation and projection-preparation tool:
 it does not drive a real projector, resin vat, or rotation stage.
 
 The optical bench is currently a fast, calibrated 2-D meridional slice. It is
-intended for choosing tank/vat dimensions, refractive indices, projector
-distance, and field of view before a material test. It does not yet model a
-real projector lens distortion, wavelength-dependent scattering, or the full
-azimuth-dependent 3-D rotation path.
+intended for choosing tank/vat dimensions, wall thicknesses, material presets,
+projector distance, field of view, and first-order resin exposure before a
+material test. It does not yet model real projector lens distortion,
+wavelength-dependent scattering, or the full azimuth-dependent 3-D rotation
+path.
+
+After clicking the optical simulation action, every projection from the latest
+Slicer run is warped through the selected aquarium/vat materials. A resin dose
+response is applied only when source intensity and the resin working curve
+are marked as measured; the water dry run keeps geometry only. The resulting PNG set is saved under
+`optical_simulation/run-...` and is passed automatically to the inverse-Radon
+reconstruction, so the 3-D preview is built from simulated images rather than
+the unmodified source frames.
 
 ## Features
 
 - Load and transform STL models in physical millimetres.
 - Use separate **Slicer**, **Projector (Video)**, and **Simulation** tabs. The
-  Slicer generates projection frames, while Simulation combines the optical
-  bench with inverse reconstruction and receives the frames automatically.
+  Slicer generates projection frames. Simulation now holds the light-source
+  feasibility check, four development-path comparisons, optical bench, inverse
+  reconstruction, and resin lab in one section; switching between them
+  preserves entered values.
+- Compare laser plus ordinary resin, laser plus a candidate visible-light
+  material against a ready-projector baseline, gelatin plus riboflavin, and a
+  phone **camera** long-exposure preview. The phone preview contrasts accumulated
+  volumetric light with the two-dimensional image formed by instantaneous
+  scattering; it does not assert that a 3D object is visible in clear liquid.
 - Keep printer and process parameters on a dedicated Settings tab.
 - Edit the model in a full-width 3D viewport with a visible vat bottom plane
   and an interactive Fusion-style view cube.
@@ -39,16 +55,25 @@ azimuth-dependent 3-D rotation path.
 - Preview generated frames as a rotating video and export them to MP4.
 - Reconstruct an approximate 3D volume with filtered back-projection (FBP).
 - Tune an optical bench before using material: trace refraction through the
-  cylindrical vat and an optional square water-filled compensator, including
-  Fresnel losses, absorption, finite aperture, and total internal reflection.
-- Compare a generated projection frame with and without the water compensator
-  on the central optical slice and inspect ray paths, coverage, transmission,
-  and geometric mapping error.
+  cylindrical vat and the external aquarium wall, including configurable wall
+  thickness, acrylic/glass and water/glycerin presets, Fresnel losses,
+  absorption, finite aperture, and total internal reflection.
+- Select **water in the vial** for a resin-free optical dry run. Without a
+  measured source intensity and working curve, reconstructed frames use
+  geometry and optical losses only; cure figures stay hidden.
+- Explore a conditional light budget from wavelength, optical power, exposure
+  time, illuminated area, and optical train transmission. Show Jacobs working
+  curve estimates only after measured intensity and resin response are supplied.
+  Compare the selected liquid with an empty aquarium while retaining its walls.
 - Keep every completed run in its own directory with validated metadata and a
   manifest; incomplete runs are not published to the player or simulator.
 - Store provisional machine/resin profiles and a deterministic frame schedule
   in every completed manifest; the schedule can be replayed by the offline
   virtual printer before hardware exists.
+- Explore vat-photopolymer resin formulations in a six-step lab inside Simulation: choose a goal,
+  select or define a base, add ingredients by mass or volume, enter process
+  conditions, inspect transparent screening estimates, and compare saved
+  recipes under shared conditions.
 - Russian is the default UI language. English remains available from the
   language selector and is stored with the application settings.
 
@@ -79,7 +104,9 @@ run_spinslicer.cmd
 .venv\Scripts\python.exe SpinSlicer.py
 ```
 
-The ready-to-run Windows executable is `dist/SpinSlicer.exe`. Do not start the
+Packaged Windows and Linux builds are available from the [GitHub Releases
+page](https://github.com/yunahinata/SpinSlicer/releases). A local PyInstaller
+build writes the Windows executable to `dist/SpinSlicer.exe`. Do not start the
 source file with a different global Python installation: PyQt6 must be loaded
 with the Qt DLLs from the same environment.
 
@@ -144,15 +171,20 @@ player or simulator can consume a run. Legacy flat folders containing
 | `SpinSlicer.py` | Main window, language selector, shared status bar, and log. |
 | `assets/spinslicer.svg` | Application icon used by the desktop UI and packages. |
 | `slicer_tab.py` | STL loading, transformation, and projection generation UI. |
-| `simulation_workbench_tab.py` | Combined optical bench and inverse reconstruction workspace. |
+| `simulation_workbench_tab.py` | Unified source, optical, reconstruction, and resin workspace. |
+| `light_source_simulation.py` | Measurement-aware laser-to-vial light budget, with unknown results left blank. |
+| `light_source_tab.py` | Interactive source assumptions and conditional optical-loss scenarios. |
+| `resin_lab_tab.py` | Guided formulation, process, prediction, and recipe-comparison UI. |
+| `resin_simulation.py` | Qt-free component library and extensible first-order resin screening models. |
 | `nut_dialog.py` | Legacy threaded-nut dialog kept for API compatibility. |
 | `threaded_nut.py` | Legacy parametric nut generator kept for API compatibility. |
 | `ui_panels.py` | Printer/process settings and compact model transform controls. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |
 | `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |
-| `optical_simulation.py` | Qt-free Snell/Fresnel ray tracing through the vat and water compensator. |
-| `optical_tab.py` | Interactive optical-bench controls, ray diagram, and projection comparison. |
+| `optical_frame_set.py` | Applies the optical/resin simulation to every projection and publishes a reconstruction-ready run. |
+| `optical_simulation.py` | Qt-free Snell/Fresnel ray tracing, material presets, radiant exposure, and resin working-curve model. |
+| `optical_tab.py` | Interactive optical-bench controls, ray diagram, dose/cure summary, and projection comparison. |
 | `video_tab.py` | Frame playback and MP4 export. |
 | `frame_io.py` | Validated frame-set storage, metadata, and manifests. |
 | `profiles.py` | Validated machine and resin profiles for offline and real jobs. |
@@ -194,6 +226,51 @@ report = VirtualPrinter(realtime=False).play("output_frames/run-...")
 print(report.frame_count, report.total_duration_s)
 ```
 
+## Resin lab screening model
+
+The **Simulation → Resin** page is a planning tool for vat photopolymerization
+(SLA/DLP/LCD). Its outputs are screening estimates, not a prediction that a
+specific printer will produce a successful part. A missing ingredient property
+keeps the dependent output blank and lists the data needed to calculate it.
+
+- Cure depth uses the Jacobs working curve, `Cd = Dp · ln(E/Ec)`, with surface
+  radiant exposure `E = intensity × time`. `Dp` and `Ec` belong to a particular
+  resin/light-source pair; enter measurements at the printer's wavelength.
+- Photo-initiator spectral match, pigment attenuation, and inhibitor loading
+  adjust `Dp` or `Ec` using editable, explicitly approximate coefficients.
+- Viscosity uses a logarithmic ideal-mixture estimate and an Arrhenius
+  temperature correction. Enter component viscosity and activation energy to
+  replace the library estimates.
+- Shrinkage uses a mass-weighted blend and converts volume change to an
+  isotropic linear-size estimate. Modulus, strength, elongation, and brittleness
+  use screening mixture rules. These rules do not predict final mechanical
+  properties or layer adhesion; those need printed test coupons.
+- The displayed ranges describe model spread, not statistical confidence
+  intervals. Local sensitivity changes one recipe ingredient or process input
+  at a time; mixing, washing, and post-cure effects are listed as unmodelled
+  until calibration data exists.
+
+Library values are examples marked as estimates. Create or edit components to
+record measured density, viscosity, working-curve values, shrinkage, or
+mechanical data. Recipes, components, and model coefficients are stored in the
+application data folder in `resin_lab.json`; individual recipes can also be
+exported as JSON. Additional calculation models can be registered through
+`resin_simulation.ModelRegistry` and selected in the **Подробно** settings.
+
+For better estimates when hardware and materials are available, measure
+irradiance at the resin surface, determine a working curve with the same light
+source and resin, then replace estimated component/process values with those
+measurements. Working-curve measurements can vary between laboratories and
+depend on wavelength and source bandwidth, so record the test setup with the
+result. [Interlaboratory working-curve study](https://pmc.ncbi.nlm.nih.gov/articles/PMC10986335/),
+[spectral-bandwidth study](https://pmc.ncbi.nlm.nih.gov/articles/PMC11459444/),
+[commercial photopolymer characterization](https://pmc.ncbi.nlm.nih.gov/articles/PMC5828039/).
+
+For the proposed 450 nm engraver laser and a resin-free optical development
+path, see [the CAL/laser feasibility note](docs/cal_laser_feasibility.md).
+For the automatic material-search assumptions and limits, see
+[the resin search guide](docs/resin_search.md).
+
 ## Development checks
 
 ```bash
@@ -206,15 +283,16 @@ GitHub Actions runs the same checks on pushes and pull requests.
 
 ## Releases
 
-To publish downloadable desktop builds, create and push a version tag:
+To publish downloadable desktop builds, update the version in `pyproject.toml`,
+then create and push a matching version tag:
 
 ```bash
-git tag v0.1.9
-git push origin v0.1.9
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-The `Build release artifacts` workflow then attaches six files to the GitHub
-Release:
+The `Build release artifacts` workflow generates release notes and attaches six
+files to the GitHub Release:
 
 - `SpinSlicer-windows-x64.zip` — contains `SpinSlicer.exe` for 64-bit Windows;
 - `SpinSlicer-Setup-<version>.exe` — per-user Windows installer with Start Menu

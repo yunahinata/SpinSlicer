@@ -48,6 +48,7 @@ class SimulatorTab(QWidget):
         self._output_dir: Optional[str] = None
         self._worker: Optional[ReconstructionWorker] = None
         self._result: Optional[ReconstructionResult] = None
+        self._pending_start = False
 
         self._threshold_timer = QTimer(self)
         self._threshold_timer.setSingleShot(True)
@@ -96,6 +97,9 @@ class SimulatorTab(QWidget):
     # --- общая папка вывода ---------------------------------------------------------
     def set_output_dir(self, path: str) -> None:
         if path != self._output_dir:
+            if self._worker is not None and self._worker.isRunning():
+                self._worker.request_cancel()
+            self._pending_start = False
             self._result = None
             self.threshold_slider.setEnabled(False)
             self.viewport.clear_model()
@@ -110,11 +114,21 @@ class SimulatorTab(QWidget):
             self.simulate_btn.setText("Stopping...")
             return
 
+        self.start_reconstruction()
+
+    def start_reconstruction(self) -> bool:
+        """Start reconstruction for the currently selected frame directory."""
+
         if not self._output_dir or not os.path.isdir(self._output_dir):
             QMessageBox.warning(
                 self, "Warning", "Select a frame folder first (output_frames)."
             )
-            return
+            return False
+
+        if self._worker is not None and self._worker.isRunning():
+            self._pending_start = True
+            self._worker.request_cancel()
+            return False
 
         self.viewport.clear_model()
         self.threshold_slider.setEnabled(False)
@@ -129,8 +143,11 @@ class SimulatorTab(QWidget):
         self._worker.cancelled.connect(self._on_reconstruction_cancelled)
         self._worker.finished.connect(self._on_worker_thread_finished)
         self._worker.start()
+        return True
 
     def _on_reconstruction_done(self, result: ReconstructionResult) -> None:
+        if self._worker is not None and self._worker.frames_dir != self._output_dir:
+            return
         self._result = result
         self.viewport.update_vat(result.diameter_mm)
         self.threshold_slider.setEnabled(True)
@@ -151,6 +168,9 @@ class SimulatorTab(QWidget):
     def _on_worker_thread_finished(self) -> None:
         self.simulate_btn.setEnabled(True)
         self.simulate_btn.setText("🔬 Simulate result")
+        if self._pending_start:
+            self._pending_start = False
+            QTimer.singleShot(0, self.start_reconstruction)
 
     # --- порог визуализации (дёшево — без повторного iradon) -------------------------
     def _on_threshold_changed(self, _v: float) -> None:

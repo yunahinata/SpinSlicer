@@ -86,6 +86,7 @@ _EN: dict[str, str] = {
     "Проверить окружение VAMToolbox": "Verify VAMToolbox environment",
     "🧊 Слайсер": "🧊 Slicer",
     "🧪 Симуляция": "🧪 Simulation",
+    "🧪 Лаборатория смолы": "🧪 Resin lab",
     "🎬 Проектор (Видео)": "🎬 Projector (Video)",
     "🔬 Симулятор": "🔬 Simulator",
     "🔭 Оптика": "🔭 Optics",

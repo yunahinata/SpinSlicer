@@ -1,9 +1,11 @@
-"""Geometrical-optics simulation for the SpinSlicer optical bench.
+"""Geometrical-optics and resin-exposure simulation for SpinSlicer.
 
 The printer pipeline works with projection images and inverse Radon
 reconstruction.  This module adds the missing physical layer: a meridional
-2-D ray trace through the projector, an optional square water compensator,
-the cylindrical vat wall, and the resin.
+2-D ray trace through the projector, the external aquarium wall, an optional
+liquid compensator, the cylindrical vat wall, and the resin.  It also converts
+the traced optical transmission into a wavelength/power/exposure estimate and
+uses the Jacobs working-curve model to estimate cure depth.
 
 It intentionally has no Qt/PyVista dependency.  That keeps the numerical
 model testable and makes it possible to replace the 2-D cross-section with a
@@ -33,7 +35,7 @@ class OpticalMaterial:
 
     ``absorption_per_mm`` is a simple Beer–Lambert coefficient.  It is not a
     substitute for a wavelength-dependent resin spectrum, but it prevents a
-    perfectly lossless scene from overstating the usable dose.
+    perfectly lossless scene from overstating the usable optical power.
     """
 
     name: str
@@ -57,6 +59,93 @@ def _material(name: str, refractive_index: float, absorption_per_mm: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
+class MaterialPreset:
+    """A convenient optical-material preset for the 450 nm bench model.
+
+    The values are starting points, not a certificate of the user's exact
+    batch, glass composition, temperature, or wavelength.  The UI keeps the
+    refractive index editable so a measured value can replace a preset.
+    """
+
+    key: str
+    display_name: str
+    refractive_index: float
+    absorption_per_mm: float
+
+
+MATERIAL_PRESETS: dict[str, MaterialPreset] = {
+    "acrylic": MaterialPreset("acrylic", "Акрил (PMMA)", 1.500, 0.00010),
+    "glass": MaterialPreset("glass", "Стекло (боросиликатное)", 1.524, 0.00008),
+    "water": MaterialPreset("water", "Вода", 1.339, 0.00002),
+    "glycerin": MaterialPreset("glycerin", "Глицерин", 1.474, 0.00010),
+}
+
+
+def material_preset(key: str) -> MaterialPreset:
+    """Return a material preset or raise a useful error for an unknown key."""
+
+    try:
+        return MATERIAL_PRESETS[key]
+    except KeyError as exc:
+        available = ", ".join(sorted(MATERIAL_PRESETS))
+        raise ValueError(f"Unknown material preset {key!r}; choose one of: {available}.") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class ResinPreset:
+    """Photopolymer parameters used by the Jacobs working-curve estimate."""
+
+    key: str
+    display_name: str
+    refractive_index: float
+    absorption_per_mm: float
+    penetration_depth_mm: float
+    critical_exposure_mj_cm2: float
+
+
+RESIN_PRESETS: dict[str, ResinPreset] = {
+    # These are deliberately labelled as estimates.  Dp and Ec must be
+    # measured for the exact resin/initiator/wavelength combination.
+    "ordinary_photopolymer": ResinPreset(
+        "ordinary_photopolymer",
+        "Обычная фотополимерная смола (оценка)",
+        1.490,
+        0.002,
+        0.180,
+        70.0,
+    ),
+    "transparent_vam": ResinPreset(
+        "transparent_vam",
+        "Прозрачная VAM-смола (оценка)",
+        1.490,
+        0.0005,
+        5.0,
+        15.0,
+    ),
+    # Optical dry run only. Dp/Ec are validation placeholders and must never
+    # be interpreted as a water cure response by the user interface.
+    "water_dry_run": ResinPreset(
+        "water_dry_run",
+        "Вода в колбе · без смолы (только оптика)",
+        1.339,
+        0.00002,
+        1.0,
+        1.0,
+    ),
+}
+
+
+def resin_preset(key: str) -> ResinPreset:
+    """Return a resin preset or raise a useful error for an unknown key."""
+
+    try:
+        return RESIN_PRESETS[key]
+    except KeyError as exc:
+        available = ", ".join(sorted(RESIN_PRESETS))
+        raise ValueError(f"Unknown resin preset {key!r}; choose one of: {available}.") from exc
+
+
+@dataclass(frozen=True, slots=True)
 class OpticalScene:
     """Parameters for a horizontal optical slice through the apparatus."""
 
@@ -68,7 +157,13 @@ class OpticalScene:
     aquarium_inner_side_mm: float = 120.0
     aquarium_wall_thickness_mm: float = 5.0
     water_level_mm: float = 120.0
+    include_aquarium_walls: bool = True
     use_water_compensator: bool = True
+
+    aquarium_wall_material_key: str = "glass"
+    compensator_material_key: str = "water"
+    vat_wall_material_key: str = "glass"
+    resin_profile_key: str = "ordinary_photopolymer"
 
     projector_distance_mm: float = 250.0
     horizontal_fov_deg: float = 12.0
@@ -76,17 +171,26 @@ class OpticalScene:
     ray_count: int = 241
     output_resolution: int = 256
 
+    source_name: str = "450 нм лазер / 3LCD Hitachi (обобщённая модель)"
+    wavelength_nm: float = 450.0
+    source_power_w: float = 1.6
+    exposure_time_s: float = 1.0
+    exposure_area_cm2: float = 36.0
+    source_efficiency: float = 1.0
+    resin_penetration_depth_mm: float = 0.180
+    resin_critical_exposure_mj_cm2: float = 70.0
+
     ambient: OpticalMaterial = field(
         default_factory=lambda: _material("Air", 1.000293, 0.0)
     )
     aquarium_wall: OpticalMaterial = field(
-        default_factory=lambda: _material("Aquarium glass", 1.52, 0.0002)
+        default_factory=lambda: _material("Aquarium glass", 1.524, 0.00008)
     )
     water: OpticalMaterial = field(
-        default_factory=lambda: _material("Water", 1.3330, 0.00002)
+        default_factory=lambda: _material("Water", 1.339, 0.00002)
     )
     vat_wall: OpticalMaterial = field(
-        default_factory=lambda: _material("Vat glass", 1.52, 0.0002)
+        default_factory=lambda: _material("Vat glass", 1.524, 0.00008)
     )
     resin: OpticalMaterial = field(
         default_factory=lambda: _material("Photopolymer", 1.49, 0.002)
@@ -110,7 +214,7 @@ class OpticalScene:
 
     @property
     def compensator_active(self) -> bool:
-        """Whether the selected horizontal slice is actually under water."""
+        """Whether the selected horizontal slice is under the chosen liquid."""
 
         return bool(
             self.use_water_compensator
@@ -129,6 +233,13 @@ class OpticalScene:
             ("projector_distance_mm", self.projector_distance_mm),
             ("horizontal_fov_deg", self.horizontal_fov_deg),
             ("target_plane_x_mm", self.target_plane_x_mm),
+            ("wavelength_nm", self.wavelength_nm),
+            ("source_power_w", self.source_power_w),
+            ("exposure_time_s", self.exposure_time_s),
+            ("exposure_area_cm2", self.exposure_area_cm2),
+            ("source_efficiency", self.source_efficiency),
+            ("resin_penetration_depth_mm", self.resin_penetration_depth_mm),
+            ("resin_critical_exposure_mj_cm2", self.resin_critical_exposure_mj_cm2),
         ):
             if not math.isfinite(float(value)):
                 raise ValueError(f"{name} must be finite.")
@@ -155,6 +266,26 @@ class OpticalScene:
             raise ValueError("Ray count must be between 9 and 4097.")
         if self.output_resolution < 16 or self.output_resolution > 4096:
             raise ValueError("Output resolution must be between 16 and 4096.")
+        if not self.source_name.strip():
+            raise ValueError("Source name must not be empty.")
+        if not 200.0 <= self.wavelength_nm <= 1200.0:
+            raise ValueError("Wavelength must be between 200 and 1200 nm.")
+        if self.source_power_w < 0.0:
+            raise ValueError("Source power must not be negative.")
+        if self.exposure_time_s <= 0.0:
+            raise ValueError("Exposure time must be positive.")
+        if self.exposure_area_cm2 <= 0.0:
+            raise ValueError("Exposure area must be positive.")
+        if not 0.0 <= self.source_efficiency <= 1.0:
+            raise ValueError("Source/system efficiency must be in [0, 1].")
+        if self.resin_penetration_depth_mm <= 0.0:
+            raise ValueError("Resin penetration depth must be positive.")
+        if self.resin_critical_exposure_mj_cm2 <= 0.0:
+            raise ValueError("Resin critical exposure must be positive.")
+        material_preset(self.aquarium_wall_material_key)
+        material_preset(self.compensator_material_key)
+        material_preset(self.vat_wall_material_key)
+        resin_preset(self.resin_profile_key)
 
         for material in (
             self.ambient,
@@ -184,10 +315,24 @@ class OpticalScene:
             warnings.append(
                 "Большое поле зрения повышает риск полного внутреннего отражения и обрезания лучей."
             )
+        if not self.include_aquarium_walls and self.use_water_compensator:
+            warnings.append("Жидкость выбрана, но стенки внешнего аквариума отключены.")
+        if abs(self.wavelength_nm - 450.0) > 1.0:
+            warnings.append(
+                "Показатели n пресетов близки к 450 нм; для другой длины волны нужна калибровка дисперсии."
+            )
+        if self.resin_penetration_depth_mm < self.vat_inner_radius_mm / 4.0:
+            warnings.append(
+                "Dp намного меньше радиуса колбы: обычная смола почти не даст дозу в центральной плоскости."
+            )
+        if "Hitachi" in self.source_name:
+            warnings.append(
+                "Профиль Hitachi обобщённый: 1,6 Вт трактуются как оптическая мощность до коэффициента потерь."
+            )
         return tuple(warnings)
 
     def without_compensator(self) -> OpticalScene:
-        """Return the same setup with the square water tank optically bypassed."""
+        """Return the same setup with liquid removed but tank walls retained."""
 
         return replace(self, use_water_compensator=False)
 
@@ -214,6 +359,8 @@ class RayTrace:
     clipped_by_aperture: bool
     path_length_mm: float
     segments: tuple[RaySegment, ...]
+    resin_entry_transmission: float = 0.0
+    resin_path_length_mm: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +382,16 @@ class OpticalSimulationResult:
     mapping_error_mean_mm: float
     mapping_error_p95_mm: float
     mapping_error_max_mm: float
+    source_radiant_exposure_mj_cm2: float
+    surface_dose_mj_cm2: np.ndarray
+    target_dose_mj_cm2: np.ndarray
+    dose_profile_mj_cm2: np.ndarray
+    cure_depth_mm: np.ndarray
+    cured_mask: np.ndarray
+    mean_target_dose_mj_cm2: float
+    cured_fraction_pct: float
+    max_cure_depth_mm: float
+    aquarium_wall_path_mean_mm: float
 
 
 def refract_direction(
@@ -427,9 +584,11 @@ def trace_ray(scene: OpticalScene, angle_rad: float) -> RayTrace:
         )
 
     # The square tank is represented by its two left vertical wall surfaces.
-    # A ray that misses this finite aperture hits a horizontal tank edge first
-    # and is not allowed to magically enter the water from the side.
-    if scene.compensator_active:
+    # Both surfaces are traced even when the compensating liquid is disabled;
+    # otherwise the comparison case would silently remove the external glass
+    # and make its thickness appear irrelevant.  A ray that misses this finite
+    # aperture hits a horizontal tank edge first and is clipped.
+    if scene.include_aquarium_walls:
         outer_x = -scene.aquarium_outer_half_side_mm
         inner_x = -scene.aquarium_inner_half_side_mm
         outer_hit = _vertical_plane_hit(point, direction, outer_x)
@@ -470,14 +629,14 @@ def trace_ray(scene: OpticalScene, angle_rad: float) -> RayTrace:
         if tir:
             return fail(tir=True)
         point = point + direction * 1e-7
-        medium = scene.water
+        medium = scene.water if scene.compensator_active else scene.ambient
 
     outer_hit = _circle_hit(point, direction, scene.vat_outer_radius_mm, target_x)
     if outer_hit is None:
         target = _target_point(point, direction, target_x)
         if target is None:
             return fail()
-        if scene.compensator_active and abs(float(target[1])) > scene.aquarium_inner_half_side_mm:
+        if scene.include_aquarium_walls and abs(float(target[1])) > scene.aquarium_inner_half_side_mm:
             return fail(clipped=True)
         append(target, medium)
         return fail()
@@ -520,10 +679,12 @@ def trace_ray(scene: OpticalScene, angle_rad: float) -> RayTrace:
         return fail(tir=True)
     point = point + direction * 1e-7
     medium = scene.resin
+    resin_entry_transmission = transmission
 
     target = _target_point(point, direction, target_x)
     if target is None:
         return fail()
+    resin_path_length = float(np.linalg.norm(target - point))
     append(target, medium)
     return RayTrace(
         input_coordinate=input_coordinate,
@@ -535,6 +696,8 @@ def trace_ray(scene: OpticalScene, angle_rad: float) -> RayTrace:
         clipped_by_aperture=False,
         path_length_mm=total_path,
         segments=tuple(segments),
+        resin_entry_transmission=float(np.clip(resin_entry_transmission, 0.0, 1.0)),
+        resin_path_length_mm=resin_path_length,
     )
 
 
@@ -543,6 +706,20 @@ def _default_profile(size: int) -> np.ndarray:
     bars = 0.5 + 0.5 * np.sin(7.0 * math.pi * coordinates)
     checker = 0.5 + 0.5 * np.sin(17.0 * math.pi * coordinates)
     return np.clip(0.12 + 0.68 * bars + 0.20 * checker, 0.0, 1.0)
+
+
+def make_test_projection_frame(width: int = 256, height: int = 256) -> np.ndarray:
+    """Return a deterministic 2-D source frame for the optical-bench preview.
+
+    The numerical simulator can operate on a one-dimensional profile, but the
+    Qt preview also has three image panes.  Keeping a real grayscale frame for
+    the default test pattern makes those panes useful before the user loads a
+    generated projection frame from disk.
+    """
+
+    if width < 2 or height < 1:
+        raise ValueError("Test projection frame must be at least 2x1 pixels.")
+    return np.tile(_default_profile(int(width)), (int(height), 1))
 
 
 def _accumulate_profile(
@@ -572,7 +749,7 @@ def _accumulate_profile(
             np.add.at(weight_sum, right, float(weight) * right_weight)
     with np.errstate(divide="ignore", invalid="ignore"):
         result = np.divide(result, weight_sum, out=np.zeros_like(result), where=weight_sum > _EPS)
-    return np.clip(result, 0.0, 1.0)
+    return np.maximum(result, 0.0)
 
 
 def simulate_optical_projection(
@@ -606,9 +783,19 @@ def simulate_optical_projection(
     traces = tuple(trace_ray(scene, float(angle)) for angle in angles)
     target_y = np.full(scene.ray_count, np.nan, dtype=np.float64)
     transmission = np.zeros(scene.ray_count, dtype=np.float64)
+    surface_dose = np.zeros(scene.ray_count, dtype=np.float64)
+    target_dose = np.zeros(scene.ray_count, dtype=np.float64)
+    cure_depth = np.zeros(scene.ray_count, dtype=np.float64)
     hit_mask = np.zeros(scene.ray_count, dtype=bool)
     tir_mask = np.zeros(scene.ray_count, dtype=bool)
     clipped_mask = np.zeros(scene.ray_count, dtype=bool)
+    source_radiant_exposure = (
+        scene.source_power_w
+        * scene.exposure_time_s
+        * scene.source_efficiency
+        / scene.exposure_area_cm2
+        * 1000.0
+    )
     for index, trace in enumerate(traces):
         transmission[index] = trace.transmission
         tir_mask[index] = trace.total_internal_reflection
@@ -616,6 +803,18 @@ def simulate_optical_projection(
         if trace.hit_resin and trace.target_y_mm is not None:
             target_y[index] = trace.target_y_mm
             hit_mask[index] = True
+            surface_dose[index] = (
+                source_radiant_exposure
+                * sampled_source[index]
+                * trace.resin_entry_transmission
+            )
+            target_dose[index] = surface_dose[index] * math.exp(
+                -trace.resin_path_length_mm / scene.resin_penetration_depth_mm
+            )
+            if surface_dose[index] > scene.resin_critical_exposure_mj_cm2:
+                cure_depth[index] = scene.resin_penetration_depth_mm * math.log(
+                    surface_dose[index] / scene.resin_critical_exposure_mj_cm2
+                )
 
     extent_mm = scene.vat_inner_radius_mm * 2.0
     output_profile = _accumulate_profile(
@@ -634,6 +833,13 @@ def simulate_optical_projection(
         extent_mm,
         scene.output_resolution,
     )
+    dose_profile = _accumulate_profile(
+        target_dose,
+        target_y,
+        hit_mask.astype(np.float64),
+        extent_mm,
+        scene.output_resolution,
+    )
     errors = np.abs(target_y[hit_mask] - ideal_y[hit_mask])
     if errors.size:
         mean_error = float(np.mean(errors))
@@ -643,6 +849,19 @@ def simulate_optical_projection(
         mean_error = p95_error = max_error = float("nan")
 
     valid_transmission = transmission[hit_mask]
+    valid_target_dose = target_dose[hit_mask]
+    valid_cure_depth = cure_depth[hit_mask]
+    cured_mask = hit_mask & (target_dose >= scene.resin_critical_exposure_mj_cm2)
+    wall_path_lengths = np.asarray(
+        [
+            trace.segments[1].length_mm
+            if scene.include_aquarium_walls and len(trace.segments) > 1
+            else 0.0
+            for trace in traces
+            if trace.hit_resin
+        ],
+        dtype=np.float64,
+    )
     return OpticalSimulationResult(
         angles_deg=np.degrees(angles),
         input_coordinates=input_coordinates,
@@ -663,6 +882,22 @@ def simulate_optical_projection(
         mapping_error_mean_mm=mean_error,
         mapping_error_p95_mm=p95_error,
         mapping_error_max_mm=max_error,
+        source_radiant_exposure_mj_cm2=float(source_radiant_exposure),
+        surface_dose_mj_cm2=surface_dose,
+        target_dose_mj_cm2=target_dose,
+        dose_profile_mj_cm2=dose_profile,
+        cure_depth_mm=cure_depth,
+        cured_mask=cured_mask,
+        mean_target_dose_mj_cm2=float(np.mean(valid_target_dose))
+        if valid_target_dose.size
+        else 0.0,
+        cured_fraction_pct=float(np.mean(cured_mask[hit_mask]) * 100.0)
+        if np.count_nonzero(hit_mask)
+        else 0.0,
+        max_cure_depth_mm=float(np.max(valid_cure_depth)) if valid_cure_depth.size else 0.0,
+        aquarium_wall_path_mean_mm=float(np.mean(wall_path_lengths))
+        if wall_path_lengths.size
+        else 0.0,
     )
 
 
@@ -724,19 +959,45 @@ def make_scene_with_indices(
     aquarium_inner_side_mm: float = 120.0,
     aquarium_wall_thickness_mm: float = 5.0,
     water_level_mm: float = 120.0,
+    include_aquarium_walls: bool = True,
     use_water_compensator: bool = True,
     projector_distance_mm: float = 250.0,
     horizontal_fov_deg: float = 12.0,
     ray_count: int = 241,
     output_resolution: int = 256,
-    aquarium_wall_ior: float = 1.52,
-    water_ior: float = 1.3330,
-    vat_wall_ior: float = 1.52,
-    resin_ior: float = 1.49,
-    water_absorption_per_mm: float = 0.00002,
-    resin_absorption_per_mm: float = 0.002,
+    aquarium_wall_material_key: str = "glass",
+    compensator_material_key: str = "water",
+    vat_wall_material_key: str = "glass",
+    resin_profile_key: str = "ordinary_photopolymer",
+    aquarium_wall_ior: float | None = None,
+    water_ior: float | None = None,
+    vat_wall_ior: float | None = None,
+    resin_ior: float | None = None,
+    water_absorption_per_mm: float | None = None,
+    resin_absorption_per_mm: float | None = None,
+    source_name: str = "450 нм лазер / 3LCD Hitachi (обобщённая модель)",
+    wavelength_nm: float = 450.0,
+    source_power_w: float = 1.6,
+    exposure_time_s: float = 1.0,
+    exposure_area_cm2: float = 36.0,
+    source_efficiency: float = 1.0,
+    resin_penetration_depth_mm: float | None = None,
+    resin_critical_exposure_mj_cm2: float | None = None,
 ) -> OpticalScene:
     """Convenience constructor used by the Qt form and small experiments."""
+
+    aquarium_preset = material_preset(aquarium_wall_material_key)
+    compensator_preset = material_preset(compensator_material_key)
+    vat_preset = material_preset(vat_wall_material_key)
+    resin_model = resin_preset(resin_profile_key)
+
+    aquarium_name = (
+        "Aquarium glass" if aquarium_wall_material_key == "glass" else aquarium_preset.display_name
+    )
+    compensator_name = "Water" if compensator_material_key == "water" else compensator_preset.display_name
+    if aquarium_wall_material_key != "glass":
+        aquarium_name = f"Aquarium {aquarium_preset.display_name}"
+    vat_name = "Vat glass" if vat_wall_material_key == "glass" else f"Vat {vat_preset.display_name}"
 
     return OpticalScene(
         vat_diameter_mm=vat_diameter_mm,
@@ -744,13 +1005,54 @@ def make_scene_with_indices(
         aquarium_inner_side_mm=aquarium_inner_side_mm,
         aquarium_wall_thickness_mm=aquarium_wall_thickness_mm,
         water_level_mm=water_level_mm,
+        include_aquarium_walls=include_aquarium_walls,
         use_water_compensator=use_water_compensator,
+        aquarium_wall_material_key=aquarium_wall_material_key,
+        compensator_material_key=compensator_material_key,
+        vat_wall_material_key=vat_wall_material_key,
+        resin_profile_key=resin_profile_key,
         projector_distance_mm=projector_distance_mm,
         horizontal_fov_deg=horizontal_fov_deg,
         ray_count=ray_count,
         output_resolution=output_resolution,
-        aquarium_wall=_material("Aquarium glass", aquarium_wall_ior, 0.0002),
-        water=_material("Water", water_ior, water_absorption_per_mm),
-        vat_wall=_material("Vat glass", vat_wall_ior, 0.0002),
-        resin=_material("Photopolymer", resin_ior, resin_absorption_per_mm),
+        source_name=source_name,
+        wavelength_nm=wavelength_nm,
+        source_power_w=source_power_w,
+        exposure_time_s=exposure_time_s,
+        exposure_area_cm2=exposure_area_cm2,
+        source_efficiency=source_efficiency,
+        resin_penetration_depth_mm=(
+            resin_model.penetration_depth_mm
+            if resin_penetration_depth_mm is None
+            else resin_penetration_depth_mm
+        ),
+        resin_critical_exposure_mj_cm2=(
+            resin_model.critical_exposure_mj_cm2
+            if resin_critical_exposure_mj_cm2 is None
+            else resin_critical_exposure_mj_cm2
+        ),
+        aquarium_wall=_material(
+            aquarium_name,
+            aquarium_preset.refractive_index if aquarium_wall_ior is None else aquarium_wall_ior,
+            aquarium_preset.absorption_per_mm,
+        ),
+        water=_material(
+            compensator_name,
+            compensator_preset.refractive_index if water_ior is None else water_ior,
+            compensator_preset.absorption_per_mm
+            if water_absorption_per_mm is None
+            else water_absorption_per_mm,
+        ),
+        vat_wall=_material(
+            vat_name,
+            vat_preset.refractive_index if vat_wall_ior is None else vat_wall_ior,
+            vat_preset.absorption_per_mm,
+        ),
+        resin=_material(
+            "Photopolymer",
+            resin_model.refractive_index if resin_ior is None else resin_ior,
+            resin_model.absorption_per_mm
+            if resin_absorption_per_mm is None
+            else resin_absorption_per_mm,
+        ),
     )

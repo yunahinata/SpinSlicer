@@ -6,7 +6,7 @@
                               (slicer_tab.SlicerTab).
   2. "🎬 Проектор (Видео)" — сборка/проигрывание/экспорт видео из кадров
                               (video_tab.ProjectorTab).
-  3. "🧪 Симуляция"        — оптический стенд и реконструкция результата.
+  3. "🧪 Симуляция"        — источник света, оптика, реконструкция и смола.
   4. "Настройки"          — параметры принтера, процесса и VAMToolbox.
 
 Статус-бар и лог общие для всего приложения. Прогресс-бар показывается
@@ -255,6 +255,8 @@ class CALSlicerMainWindow(QMainWindow):
         self.workbench = self.simulation_tab
         self.optical_tab = self.simulation_tab.optical_tab
         self.simulator_tab = self.simulation_tab.simulator_tab
+        # Public alias retained for callers that open the resin editor directly.
+        self.resin_lab_tab = self.simulation_tab.resin_lab_tab
 
         self.tabs.addTab(self.slicer_tab, "🧊 Слайсер")
         self.tabs.addTab(self.projector_tab, "🎬 Проектор (Видео)")
@@ -263,7 +265,7 @@ class CALSlicerMainWindow(QMainWindow):
 
         self.tabs.setTabToolTip(0, "Загрузка STL, настройка модели и генерация проекций")
         self.tabs.setTabToolTip(1, "Проигрывание и экспорт готовых кадров в MP4")
-        self.tabs.setTabToolTip(2, "Оптический расчёт и обратная реконструкция по кадрам")
+        self.tabs.setTabToolTip(2, "Четыре пути проекта, источник света, оптика, реконструкция и смола")
         self.tabs.setTabToolTip(3, "Настройки принтера, процесса и альтернативного движка")
 
         root.addWidget(self.tabs, 1)
@@ -301,6 +303,9 @@ class CALSlicerMainWindow(QMainWindow):
         self.slicer_tab.outputGenerated.connect(self.projector_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self.simulation_tab.set_output_dir)
         self.slicer_tab.outputGenerated.connect(self._on_output_generated)
+        self.simulation_tab.slicerRequested.connect(
+            lambda: self.tabs.setCurrentWidget(self.slicer_tab)
+        )
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._on_tab_changed(self.tabs.currentIndex())
