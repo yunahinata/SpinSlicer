@@ -563,6 +563,10 @@ class Viewport3D(QWidget):
         caption = vtk.vtkCaptionActor2D()
         caption.SetCaption(label)
         caption.SetAttachmentPoint(*label_position)
+        # Keep the letters next to the arrow tips instead of using VTK's
+        # default ten-pixel caption offset and extra text padding.
+        caption.SetPosition(2.0, 2.0)
+        caption.SetPadding(0)
         caption.GetCaptionTextProperty().SetColor(*color)
         caption.GetCaptionTextProperty().SetBold(True)
         caption.GetCaptionTextProperty().ShadowOff()
