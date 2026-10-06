@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 from PyQt6.QtCore import QProcess, QSettings, QSignalBlocker, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -155,12 +156,14 @@ class ProcessSettingsPanel(QWidget):
         self.projection_backend.addItem(tr("Native SIRT (experimental)"), "sirt")
         sirt_index = self.projection_backend.count() - 1
         if not is_native_sirt_available():
-            sirt_item = self.projection_backend.model().item(sirt_index)
-            if sirt_item is not None:
-                sirt_item.setEnabled(False)
-                sirt_item.setToolTip(
-                    tr("Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.")
-                )
+            backend_model = self.projection_backend.model()
+            if isinstance(backend_model, QStandardItemModel):
+                sirt_item = backend_model.item(sirt_index)
+                if sirt_item is not None:
+                    sirt_item.setEnabled(False)
+                    sirt_item.setToolTip(
+                        tr("Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.")
+                    )
         self.projection_backend.addItem("VAMToolbox CAL (optional)", "vamtoolbox")
         self.projection_backend.addItem(
             "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)", "auto"
