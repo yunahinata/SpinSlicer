@@ -58,6 +58,8 @@ from profiles import (
 from sirt_backend import (
     NativeSirtCancelled,
     NativeSirtUnavailable,
+)
+from sirt_backend import (
     optimize_sinograms as optimize_sirt_sinograms,
 )
 from validation import (

@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = PROJECT_ROOT / "native" / "sirt_engine.cpp"
 OUTPUT_DIR = PROJECT_ROOT / "build" / "native"
