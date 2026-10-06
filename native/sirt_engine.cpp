@@ -77,10 +77,21 @@ static int run_sirt_loop(
         }
 
         float dose_max = 0.0f;
-        #pragma omp parallel for reduction(max:dose_max)
-        for (long long i = 0; i < static_cast<long long>(pixel_values); ++i) {
-            if (dose[static_cast<std::size_t>(i)] > dose_max) {
-                dose_max = dose[static_cast<std::size_t>(i)];
+        #pragma omp parallel
+        {
+            float thread_max = 0.0f;
+            #pragma omp for nowait
+            for (long long i = 0; i < static_cast<long long>(pixel_values); ++i) {
+                const float value = dose[static_cast<std::size_t>(i)];
+                if (value > thread_max) {
+                    thread_max = value;
+                }
+            }
+            #pragma omp critical
+            {
+                if (thread_max > dose_max) {
+                    dose_max = thread_max;
+                }
             }
         }
         if (dose_max <= 0.0f) {
@@ -88,7 +99,7 @@ static int run_sirt_loop(
         }
 
         const float inv_dose_max = 1.0f / dose_max;
-        #pragma omp parallel for simd
+        #pragma omp parallel for
         for (long long i = 0; i < static_cast<long long>(pixel_values); ++i) {
             const std::size_t index = static_cast<std::size_t>(i);
             const float dose_norm = dose[index] * inv_dose_max;
