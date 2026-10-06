@@ -55,6 +55,11 @@ from profiles import (
     ResinProfile,
     VatProfile,
 )
+from sirt_backend import (
+    NativeSirtCancelled,
+    NativeSirtUnavailable,
+    optimize_sinograms as optimize_sirt_sinograms,
+)
 from validation import (
     ValidationError,
     ensure_directory,
@@ -384,6 +389,20 @@ class SlicingEngine:
                 sinograms = _radon_sinograms(
                     slices, angles, grid_res, num_frames, report, cancelled
                 )
+        elif backend == "sirt":
+            report(0.30, "Building the native SIRT ray model...")
+            try:
+                sinograms = optimize_sirt_sinograms(
+                    slices,
+                    angles,
+                    iterations=params.optimizer_iterations,
+                    progress_cb=report,
+                    is_cancelled=cancelled,
+                )
+            except NativeSirtCancelled as exc:
+                raise SliceCancelled() from exc
+            except NativeSirtUnavailable as exc:
+                raise ValidationError(str(exc)) from exc
         else:
             report(0.30, "Calculating Radon projections...")
             sinograms = _radon_sinograms(

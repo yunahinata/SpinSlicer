@@ -214,6 +214,14 @@ _EN: dict[str, str] = {
     "Projection engine": "Projection engine",
     "SpinSlicer internal Radon (recommended)":
         "SpinSlicer internal Radon (recommended)",
+    "Native SIRT (experimental)": "Native SIRT (experimental)",
+    "Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.":
+        "Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.",
+    "Internal Radon is the default. Native SIRT is experimental and "
+    "uses a sparse parallel-ray model; VAMToolbox is available when selected.":
+        "Internal Radon is the default. Native SIRT is experimental and "
+        "uses a sparse parallel-ray model; VAMToolbox is available when selected.",
+    "Optimizer iterations": "Optimizer iterations",
     "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)":
         "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)",
     "SpinSlicer internal Radon is the default engine. VAMToolbox is available only when explicitly selected.":
@@ -236,6 +244,14 @@ _RU: dict[str, str] = {
     "Projection engine": "Движок проекций",
     "SpinSlicer internal Radon (recommended)":
         "Внутренний Radon SpinSlicer (рекомендуется)",
+    "Native SIRT (experimental)": "Нативный SIRT (экспериментально)",
+    "Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.":
+        "Чтобы включить этот режим, соберите нативный модуль SIRT командой `python packaging/build_sirt.py`.",
+    "Internal Radon is the default. Native SIRT is experimental and "
+    "uses a sparse parallel-ray model; VAMToolbox is available when selected.":
+        "По умолчанию используется Radon. Нативный SIRT экспериментальный и "
+        "работает с разреженной моделью параллельных лучей; VAMToolbox доступен при выборе.",
+    "Optimizer iterations": "Итерации оптимизатора",
     "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)":
         "Авто: VAMToolbox CAL → запасной SpinSlicer (экспериментально)",
     "SpinSlicer internal Radon is the default engine. VAMToolbox is available only when explicitly selected.":

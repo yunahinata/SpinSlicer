@@ -38,6 +38,16 @@ for package in ("qdarktheme", "pyvista", "pyvistaqt", "vtkmodules"):
     binaries += collected_binaries
     hiddenimports += collected_hiddenimports
 
+native_library_name = {
+    "win32": "libsirt.dll",
+    "linux": "libsirt.so",
+    "darwin": "libsirt.dylib",
+}.get(sys.platform)
+if native_library_name:
+    native_library = PROJECT_ROOT / "build" / "native" / native_library_name
+    if native_library.is_file():
+        binaries.append((str(native_library), "."))
+
 
 a = Analysis(
     [str(PROJECT_ROOT / "SpinSlicer.py")],

@@ -61,6 +61,7 @@ files = [
     "optical_tab.py",
     "qt_runtime.py",
     "simulation_workbench_tab.py",
+    "sirt_backend.py",
     "slicer_tab.py",
     "slicing_engine.py",
     "simulator_tab.py",

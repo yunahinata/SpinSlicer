@@ -4,7 +4,7 @@ ui_panels.py
 Виджеты настроек и управления моделью.
 
   ProcessSettingsPanel — настройки принтера и процесса, вынесенные в
-    отдельную вкладку приложения, включая опциональную установку VAMToolbox.
+    отдельную вкладку приложения, включая SIRT и опциональный VAMToolbox.
   TransformToolbar — компактное управление gizmo над 3D-вьюпортом.
   ScaleControls — компактная Fusion-style панель процентов и размеров.
   ObjectPanel — прежняя расширенная панель объекта, оставленная для обратной
@@ -49,6 +49,7 @@ from constants import (
 )
 from i18n import tr
 from model_node import ModelNode
+from sirt_backend import is_native_sirt_available
 from vam_backend import (
     DEFAULT_VAM_ENV_NAME,
     build_vam_install_command,
@@ -151,18 +152,29 @@ class ProcessSettingsPanel(QWidget):
         backend_layout = QVBoxLayout(backend_box)
         self.projection_backend = QComboBox()
         self.projection_backend.addItem("SpinSlicer internal Radon (recommended)", "internal")
+        self.projection_backend.addItem(tr("Native SIRT (experimental)"), "sirt")
+        sirt_index = self.projection_backend.count() - 1
+        if not is_native_sirt_available():
+            sirt_item = self.projection_backend.model().item(sirt_index)
+            if sirt_item is not None:
+                sirt_item.setEnabled(False)
+                sirt_item.setToolTip(
+                    tr("Build the native SIRT kernel with `python packaging/build_sirt.py` to enable this backend.")
+                )
         self.projection_backend.addItem("VAMToolbox CAL (optional)", "vamtoolbox")
         self.projection_backend.addItem(
             "Auto: VAMToolbox CAL → SpinSlicer fallback (experimental)", "auto"
         )
         backend_layout.addWidget(self.projection_backend)
         self.optimizer_iterations = LabeledSlider(
-            "VAM optimizer iterations", 1, 100, 8, decimals=0, step=1,
+            tr("Optimizer iterations"), 1, 100, 8, decimals=0, step=1,
         )
         backend_layout.addWidget(self.optimizer_iterations)
         backend_hint = QLabel(
-            "SpinSlicer internal Radon is the default engine. VAMToolbox is "
-            "available only when explicitly selected."
+            tr(
+                "Internal Radon is the default. Native SIRT is experimental and "
+                "uses a sparse parallel-ray model; VAMToolbox is available when selected."
+            )
         )
         backend_hint.setObjectName("hintLabel")
         backend_hint.setWordWrap(True)

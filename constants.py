@@ -34,6 +34,9 @@ MAX_LAYERS = 4096
 MAX_STL_FILE_BYTES = 512 * 1024 * 1024
 MAX_MESH_TRIANGLES = 5_000_000
 MAX_ESTIMATED_MEMORY_BYTES = 2 * 1024 * 1024 * 1024
+# SIRT stores both CSR directions and temporary COO/CSR matrices. Estimate
+# their construction peak as 48 bytes per pixel-frame pair.
+SIRT_OPERATOR_PEAK_BYTES_PER_PIXEL_FRAME = 48
 
 # Ограничения frame-set применяются до полного декодирования изображений.
 MAX_FRAME_FILE_BYTES = 64 * 1024 * 1024

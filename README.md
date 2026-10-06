@@ -129,12 +129,19 @@ VAMToolbox:
 4. reconstruct the expected volume for a visual check.
 
 The internal SpinSlicer backend uses a robust mesh-section → rasterization →
-Radon path and has no additional installation requirements. The optional
-VAMToolbox backend adapts a voxel target to its `TargetGeometry` and
-parallel-ray `ProjectionGeometry`, then requests the CAL optimizer. It is not
-pinned in `requirements.txt` because the external project uses a separate
+Radon path and has no additional installation requirements. The experimental
+native SIRT backend uses a sparse pixel-driven parallel-ray matrix and the C++
+optimizer in `native/sirt_engine.cpp`. It is built for the current platform
+during release packaging. To enable it in a source checkout, use a C++17
+compiler (and OpenMP support where available), then run
+`python packaging/build_sirt.py`. The supplied `libsirt.so` is a Linux binary;
+SpinSlicer builds its library from the C++ source for Windows and Linux instead.
+
+The optional VAMToolbox backend adapts a voxel target to its `TargetGeometry`
+and parallel-ray `ProjectionGeometry`, then requests the CAL optimizer. It is
+not pinned in `requirements.txt` because the external project uses a separate
 conda-based installation and has its own distribution terms. The default UI
-mode is the internal SpinSlicer projector; `Auto` is retained only as an
+mode remains the internal SpinSlicer projector; `Auto` is retained only as an
 experimental compatibility mode.
 
 On Windows, open **Settings → VAMToolbox — alternate engine** to create the
@@ -180,6 +187,9 @@ player or simulator can consume a run. Legacy flat folders containing
 | `threaded_nut.py` | Legacy parametric nut generator kept for API compatibility. |
 | `ui_panels.py` | Printer/process settings and compact model transform controls. |
 | `slicing_engine.py` | Mesh-section rasterization, Radon projection, and export. |
+| `sirt_backend.py` | Sparse parallel-ray matrix adapter for the optional native SIRT optimizer. |
+| `native/sirt_engine.cpp` | Cross-platform C++ SIRT kernels. |
+| `packaging/build_sirt.py` | Builds the platform-specific SIRT library for packaging or local use. |
 | `vam_backend.py` | Optional VAMToolbox CAL adapter and sinogram layout normalization. |
 | `reconstruction.py` | Inverse Radon reconstruction and isosurface preview. |
 | `optical_frame_set.py` | Applies the optical/resin simulation to every projection and publishes a reconstruction-ready run. |

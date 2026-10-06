@@ -30,6 +30,7 @@ from constants import (
     MIN_GRID_RESOLUTION,
     MIN_NUM_FRAMES,
     MIN_OUTPUT_RESOLUTION,
+    SIRT_OPERATOR_PEAK_BYTES_PER_PIXEL_FRAME,
 )
 
 
@@ -127,9 +128,9 @@ def validate_slice_parameters(
     if not 0.0 <= threshold <= 100.0:
         raise ValidationError("threshold must be between 0 and 100.")
 
-    if projection_backend not in {"internal", "auto", "vamtoolbox"}:
+    if projection_backend not in {"internal", "auto", "vamtoolbox", "sirt"}:
         raise ValidationError(
-            "projection_backend must be one of: internal, auto, vamtoolbox."
+            "projection_backend must be one of: internal, auto, vamtoolbox, sirt."
         )
     iterations = _integer(optimizer_iterations, "optimizer_iterations")
     if not 1 <= iterations <= 100:
@@ -341,6 +342,14 @@ def preflight_mesh(
     estimated_memory = estimate_slicing_memory(
         grid, estimated_layers, frames, output_res=int(params.output_res)
     )
+    if getattr(params, "projection_backend", "internal") == "sirt":
+        estimated_memory += (
+            SIRT_OPERATOR_PEAK_BYTES_PER_PIXEL_FRAME * grid * grid * frames
+        )
+        # The native loop keeps dose/error volumes and input/output ray arrays
+        # alive alongside the voxel target and exported sinograms.
+        estimated_memory += 8 * grid * grid * estimated_layers
+        estimated_memory += 8 * grid * frames * estimated_layers
     if estimated_memory > MAX_ESTIMATED_MEMORY_BYTES:
         errors.append(
             f"Estimated slicing memory is {estimated_memory / 1024**3:.2f} GiB; "
